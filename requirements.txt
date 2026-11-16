@@ -1,0 +1,8 @@
+# OneClick LAN Transfer - Python Dependencies
+# Required on build machine (end users do NOT need Python or pip)
+
+PySide6>=6.5.0
+cryptography>=42.0.0
+psutil>=5.9.0
+pywin32>=306
+pyinstaller>=6.0.0
