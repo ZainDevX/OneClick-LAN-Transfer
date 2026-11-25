@@ -7,8 +7,10 @@ and extracts IP, DHCP, gateway, and DNS configurations.
 import subprocess
 import json
 import logging
+import socket
+import time
 from dataclasses import dataclass, field
-from typing import List, Optional, Dict, Any
+from typing import Callable, List, Optional, Dict, Any
 
 logger = logging.getLogger("OneClickLAN.AdapterDetection")
 
@@ -157,11 +159,6 @@ def get_all_adapters() -> List[AdapterInfo]:
             is_wifi=is_wifi,
             is_virtual=is_virtual
         )
-
-        # Fetch IP configuration
-        config = get_adapter_ip_config(idx)
-        adapter.config = config
-
         adapters.append(adapter)
 
     return adapters
@@ -209,6 +206,73 @@ def prefix_to_netmask(prefix: int) -> str:
     """Convert IPv4 CIDR prefix (e.g. 24) to subnet mask (e.g. 255.255.255.0)."""
     mask = (0xffffffff >> (32 - prefix)) << (32 - prefix)
     return f"{(mask >> 24) & 0xff}.{(mask >> 16) & 0xff}.{(mask >> 8) & 0xff}.{mask & 0xff}"
+
+
+def ipv4_addresses_on(adapter_name: str) -> List[str]:
+    """IPv4 addresses currently assigned to one adapter, by its Windows name."""
+    import psutil
+
+    addresses = []
+    for entry in psutil.net_if_addrs().get(adapter_name, []):
+        if entry.family == socket.AF_INET and entry.address:
+            addresses.append(entry.address)
+    return addresses
+
+
+def wait_for_ipv4(
+    adapter_name: str,
+    expected_ip: str,
+    timeout: float = 3.0,
+    interval: float = 0.1,
+    read_addresses: Optional[Callable[[], List[str]]] = None,
+) -> tuple[bool, List[str]]:
+    """
+    Poll until expected_ip is assigned to adapter_name.
+    Returns as soon as it appears. After timeout, returns the last addresses seen.
+    """
+    reader = read_addresses or (lambda: ipv4_addresses_on(adapter_name))
+    deadline = time.monotonic() + timeout
+    found: List[str] = []
+    while True:
+        found = list(reader())
+        if expected_ip in found:
+            return True, found
+        if time.monotonic() >= deadline:
+            return False, found
+        time.sleep(interval)
+
+
+def interface_address_snapshot() -> List[tuple]:
+    """(name, is_up, ipv4 addresses) for every interface psutil can see."""
+    import psutil
+
+    stats = psutil.net_if_stats()
+    snapshot = []
+    for name, entries in psutil.net_if_addrs().items():
+        state = stats.get(name)
+        is_up = True if state is None else bool(state.isup)
+        ipv4 = [entry.address for entry in entries if entry.family == socket.AF_INET and entry.address]
+        snapshot.append((name, is_up, ipv4))
+    return snapshot
+
+
+def find_subnet_conflict(target_ip: str, ignore_name: str) -> Optional[str]:
+    """
+    Name of another interface that is up and already uses target_ip or its /24.
+    Disconnected adapters are ignored, matching the previous conflict rule.
+    """
+    return conflict_in_snapshot(target_ip, ignore_name, interface_address_snapshot())
+
+
+def conflict_in_snapshot(target_ip: str, ignore_name: str, snapshot: List[tuple]) -> Optional[str]:
+    prefix = ".".join(target_ip.split(".")[:3]) + "."
+    for name, is_up, addresses in snapshot:
+        if name == ignore_name or not is_up:
+            continue
+        for address in addresses:
+            if address == target_ip or address.startswith(prefix):
+                return name
+    return None
 
 
 def get_physical_ethernet_adapters() -> List[AdapterInfo]:

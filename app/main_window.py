@@ -4,15 +4,13 @@ Manages application lifecycle, view transitions, dark/light themes,
 and safe network restoration on close.
 """
 
-import sys
 import logging
 from pathlib import Path
 
 from PySide6.QtWidgets import (
-    QMainWindow, QStackedWidget, QMessageBox, QWidget, QVBoxLayout
+    QMainWindow, QStackedWidget, QMessageBox
 )
 from PySide6.QtGui import QIcon
-from PySide6.QtCore import Qt
 
 from app.settings_manager import SettingsManager
 from app.network_manager import NetworkManager
@@ -21,6 +19,8 @@ from ui.dashboard import DashboardView
 from ui.host_view import HostView
 from ui.client_view import ClientView
 from ui.settings_view import SettingsView
+from ui.adapter_directory import AdapterDirectory
+from ui.worker import FunctionThread
 
 logger = logging.getLogger("OneClickLAN.MainWindow")
 
@@ -38,6 +38,8 @@ class MainWindow(QMainWindow):
 
         self.settings = SettingsManager()
         self.net_mgr = NetworkManager()
+        self.adapter_directory = AdapterDirectory(self)
+        self._restore_thread = None
 
         self.init_ui()
         self.apply_theme(self.settings.get("theme", "dark"))
@@ -69,14 +71,37 @@ class MainWindow(QMainWindow):
         self.settings_view.request_back.connect(lambda: self.switch_page(0))
         self.settings_view.theme_changed.connect(self.apply_theme)
 
+    def start_adapter_detection(self):
+        """Called after the window is shown. The scan itself is not on the GUI thread."""
+        self.adapter_directory.updated.connect(self._publish_adapters)
+        self.adapter_directory.failed.connect(self._on_adapter_scan_failed)
+        self._publish_adapters()
+        self.adapter_directory.revalidate(force=True)
+
+    def refresh_adapters(self):
+        self.dashboard_view.adapter_status_lbl.setText("Refreshing Ethernet adapters...")
+        self.adapter_directory.revalidate(force=True)
+
+    def invalidate_adapters(self):
+        """Drop freshness after a network change and reload in the background."""
+        self.adapter_directory.invalidate()
+        self.adapter_directory.revalidate(force=True)
+
+    def _publish_adapters(self, adapters=None):
+        if adapters is None:
+            adapters = self.adapter_directory.current()
+        scanning = adapters is None
+        self.dashboard_view.apply_adapters(adapters, scanning=scanning)
+        self.host_view.apply_adapters(adapters)
+        self.client_view.apply_adapters(adapters)
+
+    def _on_adapter_scan_failed(self, message: str):
+        self.dashboard_view.show_adapter_error(message)
+
     def switch_page(self, index: int):
         self.stack.setCurrentIndex(index)
-        if index == 0:
-            self.dashboard_view.refresh_system_status()
-        elif index == 1:
-            self.host_view.populate_adapters()
-        elif index == 2:
-            self.client_view.populate_adapters()
+        self.adapter_directory.revalidate()
+        self._publish_adapters()
 
     def apply_theme(self, theme_name: str):
         if theme_name.lower() == "light":
@@ -93,12 +118,24 @@ class MainWindow(QMainWindow):
             QMessageBox.Yes
         )
         if reply == QMessageBox.Yes:
-            ok, msg = self.net_mgr.restore_adapter_configuration()
-            if ok:
-                QMessageBox.information(self, "Network Restored", f"✅ {msg}")
-            else:
-                QMessageBox.warning(self, "Restoration Result", f"⚠️ {msg}")
-            self.dashboard_view.refresh_system_status()
+            self.dashboard_view.restore_btn.setEnabled(False)
+            self._restore_thread = FunctionThread(self.net_mgr.restore_adapter_configuration, self)
+            self._restore_thread.succeeded.connect(self._on_restore_finished)
+            self._restore_thread.failed.connect(self._on_restore_failed)
+            self._restore_thread.start()
+
+    def _on_restore_finished(self, outcome):
+        self.dashboard_view.restore_btn.setEnabled(True)
+        ok, msg = outcome
+        self.invalidate_adapters()
+        if ok:
+            QMessageBox.information(self, "Network Restored", f"✅ {msg}")
+        else:
+            QMessageBox.warning(self, "Restoration Result", f"⚠️ {msg}")
+
+    def _on_restore_failed(self, message: str):
+        self.dashboard_view.restore_btn.setEnabled(True)
+        QMessageBox.warning(self, "Restoration Result", f"⚠️ {message}")
 
     def closeEvent(self, event):
         # Stop host service if active

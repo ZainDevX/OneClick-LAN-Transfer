@@ -66,8 +66,22 @@ ERROR_CATALOG = {
         code="STATIC_IP_FAILED",
         title="Static IP Configuration Failed",
         what="The application was unable to set the static IP address on the selected network adapter.",
-        why="Windows Netsh or PowerShell command was denied or the adapter was busy/re-negotiating.",
-        how="1. Ensure you granted Administrator/UAC permission.\n2. Open an elevated PowerShell prompt or relaunch the app as Administrator.\n3. Verify the adapter is enabled in Windows Network Connections."
+        why="Windows Netsh was denied, the adapter name was rejected, or the adapter was busy.",
+        how="1. Approve the administrator prompt for OneClick LAN.\n2. Confirm the Ethernet adapter is enabled in Windows Network Connections.\n3. Try again. If it still fails, use Restore Original Network Settings."
+    ),
+    "IP_NOT_ASSIGNED": ErrorDetail(
+        code="IP_NOT_ASSIGNED",
+        title="Static IP Was Not Assigned",
+        what="Windows did not put the requested address on the selected Ethernet adapter.",
+        why="The address command did not stick. A disconnected cable, a cancelled administrator prompt, or another program changing the adapter can cause this.",
+        how="1. Plug the Ethernet cable into this computer.\n2. Approve the single administrator prompt.\n3. Click Start Host again. Do not continue until this computer actually shows the new address."
+    ),
+    "ELEVATION_CANCELLED": ErrorDetail(
+        code="ELEVATION_CANCELLED",
+        title="Administrator Permission Cancelled",
+        what="The network change was not applied because the administrator prompt was cancelled.",
+        why="Setting a static IP and a firewall rule requires administrator permission on Windows.",
+        how="Click the action again and choose Yes on the single Windows permission prompt."
     ),
     "HOST_UNREACHABLE": ErrorDetail(
         code="HOST_UNREACHABLE",

@@ -13,7 +13,8 @@ from PySide6.QtCore import Signal
 
 from app.settings_manager import SettingsManager
 from app.network_manager import NetworkManager
-from app.firewall_manager import add_firewall_rule, remove_firewall_rule, rule_exists
+from app.firewall_manager import add_firewall_rule, remove_firewall_rule
+from ui.worker import FunctionThread
 
 class SettingsView(QWidget):
     request_back = Signal()
@@ -23,6 +24,7 @@ class SettingsView(QWidget):
         super().__init__(parent)
         self.settings = settings_mgr
         self.net_mgr = network_mgr
+        self._fw_thread = None
         self.init_ui()
 
     def init_ui(self):
@@ -144,18 +146,30 @@ class SettingsView(QWidget):
             port = int(self.port_input.text().strip())
         except ValueError:
             port = 52428
-        ok, msg = add_firewall_rule(port)
-        if ok:
-            QMessageBox.information(self, "Firewall", "Firewall inbound rule active.")
-        else:
-            QMessageBox.warning(self, "Firewall Error", msg)
+        if self._fw_thread is not None and self._fw_thread.isRunning():
+            return
+        self._fw_thread = FunctionThread(lambda: add_firewall_rule(port), self)
+        self._fw_thread.succeeded.connect(self._on_firewall_finished)
+        self._fw_thread.failed.connect(self._on_firewall_failed)
+        self._fw_thread.start()
 
     def handle_remove_firewall(self):
-        ok, msg = remove_firewall_rule()
+        if self._fw_thread is not None and self._fw_thread.isRunning():
+            return
+        self._fw_thread = FunctionThread(remove_firewall_rule, self)
+        self._fw_thread.succeeded.connect(self._on_firewall_finished)
+        self._fw_thread.failed.connect(self._on_firewall_failed)
+        self._fw_thread.start()
+
+    def _on_firewall_finished(self, outcome):
+        ok, msg = outcome
         if ok:
-            QMessageBox.information(self, "Firewall", "Firewall rule removed.")
+            QMessageBox.information(self, "Firewall", msg or "Firewall change completed.")
         else:
-            QMessageBox.warning(self, "Firewall Error", msg)
+            QMessageBox.warning(self, "Firewall Error", msg or "The firewall command failed.")
+
+    def _on_firewall_failed(self, message: str):
+        QMessageBox.warning(self, "Firewall Error", message)
 
     def save_settings(self):
         try:

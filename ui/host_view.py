@@ -12,12 +12,13 @@ from PySide6.QtWidgets import (
     QComboBox, QTableWidget, QTableWidgetItem, QFileDialog, QHeaderView,
     QProgressBar, QMessageBox, QApplication
 )
-from PySide6.QtCore import Qt, Signal, QObject
+from PySide6.QtCore import Qt, Signal
 
-from app.adapter_detection import get_physical_ethernet_adapters, AdapterInfo
+from app.adapter_detection import AdapterInfo
 from app.network_manager import NetworkManager
 from app.host import HostService
 from app.transfer_engine import TransferProgress
+from ui.worker import FunctionThread, HostBridge
 
 class HostView(QWidget):
     request_back = Signal()
@@ -29,6 +30,13 @@ class HostView(QWidget):
         self.host_service: Optional[HostService] = None
         self.adapters: List[AdapterInfo] = []
         self.selected_paths: List[str] = []
+        self._net_thread: Optional[FunctionThread] = None
+        self.bridge = HostBridge(self)
+        self.bridge.client_connected.connect(self._on_client_connected)
+        self.bridge.client_disconnected.connect(self._on_client_disconnected)
+        self.bridge.progress.connect(self._on_progress_update)
+        self.bridge.status.connect(self._on_host_status)
+        self.bridge.error.connect(self._on_host_error)
         self.init_ui()
 
     def init_ui(self):
@@ -69,7 +77,7 @@ class HostView(QWidget):
         adapter_row.addWidget(self.adapter_combo, 1)
 
         self.refresh_adapters_btn = QPushButton("Refresh")
-        self.refresh_adapters_btn.clicked.connect(self.populate_adapters)
+        self.refresh_adapters_btn.clicked.connect(self._request_refresh)
         adapter_row.addWidget(self.refresh_adapters_btn)
 
         self.start_host_btn = QPushButton("Start Host (Configure 192.168.50.1)")
@@ -173,19 +181,41 @@ class HostView(QWidget):
         self.progress_detail_lbl.setStyleSheet("color: #888888;")
         mon_layout.addWidget(self.progress_detail_lbl)
         layout.addWidget(self.monitor_card)
+        self.apply_adapters(None)
 
-        self.populate_adapters()
+    def _request_refresh(self):
+        window = self.window()
+        refresher = getattr(window, "refresh_adapters", None)
+        if refresher is not None:
+            refresher()
 
-    def populate_adapters(self):
+    def apply_adapters(self, adapters):
+        """Fill the combo from the shared cache without scanning."""
+        if self.host_service and self.host_service.is_running:
+            return
+        previous_index = None
+        current = self.adapter_combo.currentIndex()
+        if 0 <= current < len(self.adapters):
+            previous_index = self.adapters[current].interface_index
+
+        self.adapters = list(adapters or [])
+        self.adapter_combo.blockSignals(True)
         self.adapter_combo.clear()
-        self.adapters = get_physical_ethernet_adapters()
-        if not self.adapters:
+        if adapters is None:
+            self.adapter_combo.addItem("Detecting Ethernet adapters...")
+            self.start_host_btn.setEnabled(False)
+        elif not self.adapters:
             self.adapter_combo.addItem("No Physical Ethernet Adapter Found")
             self.start_host_btn.setEnabled(False)
         else:
-            for adp in self.adapters:
-                self.adapter_combo.addItem(adp.display_name(), adp)
-            self.start_host_btn.setEnabled(True)
+            restore_at = 0
+            for position, adapter in enumerate(self.adapters):
+                self.adapter_combo.addItem(adapter.display_name(), adapter)
+                if adapter.interface_index == previous_index:
+                    restore_at = position
+            self.adapter_combo.setCurrentIndex(restore_at)
+            self.start_host_btn.setEnabled(self._net_thread is None or not self._net_thread.isRunning())
+        self.adapter_combo.blockSignals(False)
 
     def toggle_host_service(self):
         if self.host_service and self.host_service.is_running:
@@ -201,52 +231,96 @@ class HostView(QWidget):
             return
 
         adapter = self.adapters[idx]
-
-        # 1. Automatic Network Configuration
-        try:
+        if not adapter.is_connected:
+            self.service_pill.setText("Cable unplugged — configuring anyway...")
+        else:
             self.service_pill.setText("Configuring IP...")
-            self.service_pill.setObjectName("pill_warning")
-            self.service_pill.setStyle(self.service_pill.style())
-            QApplication.processEvents()
-
-            ok, msg = self.net_mgr.configure_host_network(adapter)
-        except Exception as e:
-            QMessageBox.critical(self, "Network Configuration Error", str(e))
-            self.service_pill.setText("Config Failed")
-            self.service_pill.setObjectName("pill_danger")
-            self.service_pill.setStyle(self.service_pill.style())
-            return
-
-        # 2. Start Host Service
-        self.host_service = HostService(bind_ip="192.168.50.1", port=52428)
-        self.host_service.set_shared_paths(self.selected_paths)
-
-        # Wire up callbacks
-        self.host_service.on_client_connected = self._on_client_connected
-        self.host_service.on_client_disconnected = self._on_client_disconnected
-        self.host_service.on_progress_update = self._on_progress_update
-
-        self.host_service.start()
-
-        # Update UI
-        self.pairing_code_lbl.setText(self.host_service.display_code)
-        self.start_host_btn.setText("Stop Host Service")
-        self.start_host_btn.setObjectName("danger")
-        self.start_host_btn.setStyle(self.start_host_btn.style())
+        self.service_pill.setObjectName("pill_warning")
+        self.service_pill.setStyle(self.service_pill.style())
+        self.start_host_btn.setEnabled(False)
         self.adapter_combo.setEnabled(False)
 
-        self.service_pill.setText("Host Active (192.168.50.1)")
-        self.service_pill.setObjectName("pill_success")
+        self._net_thread = FunctionThread(lambda: self.net_mgr.configure_host_network(adapter), self)
+        self._net_thread.succeeded.connect(self._on_host_net_ready)
+        self._net_thread.failed.connect(self._on_host_net_failed)
+        self._net_thread.start()
+
+    def _on_host_net_failed(self, message: str):
+        self._fail_host_config(message)
+
+    def _on_host_net_ready(self, result):
+        self._notify_network_changed()
+        if not result.ip_verified:
+            self._fail_host_config(result.message)
+            return
+        if result.firewall_ok is False:
+            QMessageBox.warning(self, "Firewall Rule Failed", result.message)
+        self._start_listener()
+
+    def _start_listener(self):
+        self.host_service = HostService(bind_ip="192.168.50.1", port=52428)
+        self.host_service.set_shared_paths(self.selected_paths)
+        self.host_service.on_client_connected = self.bridge.client_connected.emit
+        self.host_service.on_client_disconnected = self.bridge.client_disconnected.emit
+        self.host_service.on_progress_update = self.bridge.progress.emit
+        self.host_service.on_status_change = self.bridge.status.emit
+        self.host_service.on_error = self.bridge.error.emit
+        self.service_pill.setText("Starting host...")
+        self.host_service.start()
+
+    def _on_host_status(self, text: str):
+        if text.startswith("Ready on") and self.host_service is not None:
+            self.pairing_code_lbl.setText(self.host_service.display_code)
+            self.start_host_btn.setText("Stop Host Service")
+            self.start_host_btn.setObjectName("danger")
+            self.start_host_btn.setStyle(self.start_host_btn.style())
+            self.start_host_btn.setEnabled(True)
+            self.adapter_combo.setEnabled(False)
+            self.service_pill.setText(f"Host Active ({self.host_service.bind_ip})")
+            self.service_pill.setObjectName("pill_success")
+            self.service_pill.setStyle(self.service_pill.style())
+
+    def _on_host_error(self, message: str):
+        self._fail_host_config(message)
+
+    def _fail_host_config(self, message: str):
+        self._release_host_service()
+        self.start_host_btn.setText("Start Host (Configure 192.168.50.1)")
+        self.start_host_btn.setObjectName("primary")
+        self.start_host_btn.setStyle(self.start_host_btn.style())
+        self.start_host_btn.setEnabled(True)
+        self.adapter_combo.setEnabled(True)
+        self.service_pill.setText("Config Failed")
+        self.service_pill.setObjectName("pill_danger")
         self.service_pill.setStyle(self.service_pill.style())
+        self.pairing_code_lbl.setText("--- ---")
+        QMessageBox.critical(self, "Host Did Not Start", message)
+
+    def _notify_network_changed(self):
+        window = self.window()
+        invalidate = getattr(window, "invalidate_adapters", None)
+        if invalidate is not None:
+            invalidate()
+
+    def _release_host_service(self):
+        service = self.host_service
+        self.host_service = None
+        if service is None:
+            return
+        service.on_client_connected = None
+        service.on_client_disconnected = None
+        service.on_progress_update = None
+        service.on_status_change = None
+        service.on_error = None
+        service.stop()
 
     def stop_host(self):
-        if self.host_service:
-            self.host_service.stop()
-            self.host_service = None
+        self._release_host_service()
 
         self.start_host_btn.setText("Start Host (Configure 192.168.50.1)")
         self.start_host_btn.setObjectName("primary")
         self.start_host_btn.setStyle(self.start_host_btn.style())
+        self.start_host_btn.setEnabled(bool(self.adapters))
         self.adapter_combo.setEnabled(True)
 
         self.service_pill.setText("Service Stopped")

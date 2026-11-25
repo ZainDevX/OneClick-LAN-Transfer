@@ -11,7 +11,6 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import Qt, Signal
 
 from app.permissions import is_admin
-from app.adapter_detection import get_physical_ethernet_adapters
 
 class DashboardView(QWidget):
     # Signals to request mode change
@@ -49,7 +48,7 @@ class DashboardView(QWidget):
         status_icon.setStyleSheet("font-size: 20px;")
         banner_layout.addWidget(status_icon)
 
-        self.adapter_status_lbl = QLabel("Scanning network adapters...")
+        self.adapter_status_lbl = QLabel("Detecting Ethernet adapters...")
         self.adapter_status_lbl.setStyleSheet("font-weight: 500;")
         banner_layout.addWidget(self.adapter_status_lbl, 1)
 
@@ -59,7 +58,7 @@ class DashboardView(QWidget):
 
         self.refresh_adapters_btn = QPushButton("Refresh")
         self.refresh_adapters_btn.setFixedWidth(80)
-        self.refresh_adapters_btn.clicked.connect(self.refresh_system_status)
+        self.refresh_adapters_btn.clicked.connect(self.request_manual_refresh)
         banner_layout.addWidget(self.refresh_adapters_btn)
 
         main_layout.addWidget(self.status_banner)
@@ -151,11 +150,16 @@ class DashboardView(QWidget):
         bottom_bar.addWidget(self.settings_btn)
 
         main_layout.addLayout(bottom_bar)
+        self.refresh_admin_badge()
 
-        self.refresh_system_status()
+    def request_manual_refresh(self):
+        window = self.window()
+        refresher = getattr(window, "refresh_adapters", None)
+        if refresher is not None:
+            self.adapter_status_lbl.setText("Refreshing Ethernet adapters...")
+            refresher()
 
-    def refresh_system_status(self):
-        # Admin badge
+    def refresh_admin_badge(self):
         admin = is_admin()
         if admin:
             self.admin_badge.setText("Administrator")
@@ -165,16 +169,24 @@ class DashboardView(QWidget):
             self.admin_badge.setObjectName("pill_warning")
         self.admin_badge.setStyle(self.admin_badge.style())
 
-        # Adapter status
-        try:
-            adapters = get_physical_ethernet_adapters()
-            if not adapters:
-                self.adapter_status_lbl.setText("No physical Ethernet adapter detected. Please connect a USB LAN dongle or check hardware.")
-            else:
-                connected = [a for a in adapters if a.is_connected]
-                if connected:
-                    self.adapter_status_lbl.setText(f"Active Adapter: {connected[0].display_name()}")
-                else:
-                    self.adapter_status_lbl.setText(f"Detected: {adapters[0].display_name()} (Plug Cat6 cable to both PCs)")
-        except Exception as e:
-            self.adapter_status_lbl.setText(f"Adapter check error: {e}")
+    def apply_adapters(self, adapters, scanning: bool = False):
+        """Show the shared cache. This does not start a scan."""
+        if adapters is None:
+            if scanning:
+                self.adapter_status_lbl.setText("Detecting Ethernet adapters...")
+            return
+        if not adapters:
+            self.adapter_status_lbl.setText(
+                "No physical Ethernet adapter detected. Please connect a USB LAN dongle or check hardware."
+            )
+            return
+        connected = [adapter for adapter in adapters if adapter.is_connected]
+        if connected:
+            self.adapter_status_lbl.setText(f"Active Adapter: {connected[0].display_name()}")
+        else:
+            self.adapter_status_lbl.setText(
+                f"Detected: {adapters[0].display_name()} (Plug Cat6 cable to both PCs)"
+            )
+
+    def show_adapter_error(self, message: str):
+        self.adapter_status_lbl.setText(f"Adapter check error: {message}")

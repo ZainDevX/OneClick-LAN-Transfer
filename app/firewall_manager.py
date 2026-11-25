@@ -29,16 +29,9 @@ def rule_exists(rule_name: str = RULE_NAME) -> bool:
         logger.warning(f"Failed to check firewall rule status: {e}")
         return False
 
-def add_firewall_rule(port: int = 52428, rule_name: str = RULE_NAME) -> tuple[bool, str]:
-    """
-    Add an inbound firewall rule allowing TCP traffic on the application port.
-    Applies only to Private and Domain network profiles for security.
-    """
-    if rule_exists(rule_name):
-        logger.info(f"Firewall rule '{rule_name}' already exists.")
-        return True, "Firewall rule already active."
-
-    cmd = (
+def firewall_add_command(port: int = 52428, rule_name: str = RULE_NAME) -> str:
+    """netsh command that allows inbound TCP on the transfer port for Private networks."""
+    return (
         f'netsh advfirewall firewall add rule '
         f'name="{rule_name}" '
         f'dir=in '
@@ -48,6 +41,23 @@ def add_firewall_rule(port: int = 52428, rule_name: str = RULE_NAME) -> tuple[bo
         f'profile=private '
         f'description="Allow inbound high-speed direct Ethernet file transfers for OneClick LAN Transfer."'
     )
+
+
+def firewall_delete_command(rule_name: str = RULE_NAME) -> str:
+    """netsh command that removes only this application's firewall rule."""
+    return f'netsh advfirewall firewall delete rule name="{rule_name}"'
+
+
+def add_firewall_rule(port: int = 52428, rule_name: str = RULE_NAME) -> tuple[bool, str]:
+    """
+    Add an inbound firewall rule allowing TCP traffic on the application port.
+    Applies only to Private network profiles.
+    """
+    if rule_exists(rule_name):
+        logger.info(f"Firewall rule '{rule_name}' already exists.")
+        return True, "Firewall rule already active."
+
+    cmd = firewall_add_command(port, rule_name)
 
     logger.info(f"Adding firewall rule: {cmd}")
     success, output = run_elevated_command(cmd)
@@ -66,7 +76,7 @@ def remove_firewall_rule(rule_name: str = RULE_NAME) -> tuple[bool, str]:
         logger.info(f"Firewall rule '{rule_name}' does not exist, nothing to clean up.")
         return True, "Rule not present."
 
-    cmd = f'netsh advfirewall firewall delete rule name="{rule_name}"'
+    cmd = firewall_delete_command(rule_name)
     logger.info(f"Removing firewall rule: {cmd}")
     success, output = run_elevated_command(cmd)
     if success:

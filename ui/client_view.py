@@ -11,15 +11,15 @@ from typing import List, Optional, Dict, Any
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QFrame,
     QComboBox, QLineEdit, QTableWidget, QTableWidgetItem, QFileDialog,
-    QHeaderView, QProgressBar, QMessageBox, QApplication
+    QHeaderView, QProgressBar, QMessageBox
 )
 from PySide6.QtCore import Qt, Signal
 
-from app.adapter_detection import get_physical_ethernet_adapters, AdapterInfo
+from app.adapter_detection import AdapterInfo
 from app.network_manager import NetworkManager
 from app.client import ClientService
 from app.transfer_engine import TransferProgress
-from app.error_handler import get_error
+from ui.worker import ClientBridge, FunctionThread
 
 class ClientView(QWidget):
     request_back = Signal()
@@ -31,6 +31,11 @@ class ClientView(QWidget):
         self.client_service: Optional[ClientService] = None
         self.adapters: List[AdapterInfo] = []
         self.remote_files: List[Dict[str, Any]] = []
+        self._job_thread: Optional[FunctionThread] = None
+        self.bridge = ClientBridge(self)
+        self.bridge.progress.connect(self._on_progress_update)
+        self.bridge.error.connect(self._on_error)
+        self.bridge.transfer_complete.connect(self._on_transfer_complete)
         self.init_ui()
 
     def init_ui(self):
@@ -70,7 +75,7 @@ class ClientView(QWidget):
         adapter_row.addWidget(self.adapter_combo, 1)
 
         self.refresh_adapters_btn = QPushButton("Refresh")
-        self.refresh_adapters_btn.clicked.connect(self.populate_adapters)
+        self.refresh_adapters_btn.clicked.connect(self._request_refresh)
         adapter_row.addWidget(self.refresh_adapters_btn)
 
         self.config_net_btn = QPushButton("Configure Network (192.168.50.2)")
@@ -199,19 +204,40 @@ class ClientView(QWidget):
 
         layout.addWidget(transfer_card)
 
-        self.populate_adapters()
+        self.apply_adapters(None)
         self.update_disk_space()
 
-    def populate_adapters(self):
+    def _request_refresh(self):
+        window = self.window()
+        refresher = getattr(window, "refresh_adapters", None)
+        if refresher is not None:
+            refresher()
+
+    def apply_adapters(self, adapters):
+        """Fill the combo from the shared cache without scanning."""
+        previous_index = None
+        current = self.adapter_combo.currentIndex()
+        if 0 <= current < len(self.adapters):
+            previous_index = self.adapters[current].interface_index
+        self.adapters = list(adapters or [])
+        self.adapter_combo.blockSignals(True)
         self.adapter_combo.clear()
-        self.adapters = get_physical_ethernet_adapters()
-        if not self.adapters:
+        if adapters is None:
+            self.adapter_combo.addItem("Detecting Ethernet adapters...")
+            self.config_net_btn.setEnabled(False)
+        elif not self.adapters:
             self.adapter_combo.addItem("No Physical Ethernet Adapter Found")
             self.config_net_btn.setEnabled(False)
         else:
-            for adp in self.adapters:
-                self.adapter_combo.addItem(adp.display_name(), adp)
-            self.config_net_btn.setEnabled(True)
+            restore_at = 0
+            for position, adapter in enumerate(self.adapters):
+                self.adapter_combo.addItem(adapter.display_name(), adapter)
+                if adapter.interface_index == previous_index:
+                    restore_at = position
+            self.adapter_combo.setCurrentIndex(restore_at)
+            busy = self._job_thread is not None and self._job_thread.isRunning()
+            self.config_net_btn.setEnabled(not busy)
+        self.adapter_combo.blockSignals(False)
 
     def configure_network(self):
         idx = self.adapter_combo.currentIndex()
@@ -219,30 +245,62 @@ class ClientView(QWidget):
             return
 
         adapter = self.adapters[idx]
-        try:
+        if not adapter.is_connected:
+            self.status_pill.setText("Cable unplugged — configuring anyway...")
+        else:
             self.status_pill.setText("Configuring...")
-            self.status_pill.setObjectName("pill_warning")
-            self.status_pill.setStyle(self.status_pill.style())
-            QApplication.processEvents()
+        self.status_pill.setObjectName("pill_warning")
+        self.status_pill.setStyle(self.status_pill.style())
+        self.config_net_btn.setEnabled(False)
 
-            ok, msg = self.net_mgr.configure_client_network(adapter)
-            QMessageBox.information(self, "Network Configured", f"Client IP configured successfully.\n\n{msg}")
-            self.status_pill.setText("Network Configured (192.168.50.2)")
-            self.status_pill.setObjectName("pill_success")
-            self.status_pill.setStyle(self.status_pill.style())
-        except Exception as e:
-            QMessageBox.critical(self, "Configuration Error", str(e))
+        self._job_thread = FunctionThread(lambda: self.net_mgr.configure_client_network(adapter), self)
+        self._job_thread.succeeded.connect(self._on_client_net_ready)
+        self._job_thread.failed.connect(self._on_client_net_failed)
+        self._job_thread.start()
+
+    def _on_client_net_failed(self, message: str):
+        self.config_net_btn.setEnabled(bool(self.adapters))
+        self.status_pill.setText("Config Error")
+        self.status_pill.setObjectName("pill_danger")
+        self.status_pill.setStyle(self.status_pill.style())
+        QMessageBox.critical(self, "Configuration Error", message)
+
+    def _on_client_net_ready(self, result):
+        window = self.window()
+        invalidate = getattr(window, "invalidate_adapters", None)
+        if invalidate is not None:
+            invalidate()
+        self.config_net_btn.setEnabled(bool(self.adapters))
+        if not result.ip_verified:
             self.status_pill.setText("Config Error")
             self.status_pill.setObjectName("pill_danger")
             self.status_pill.setStyle(self.status_pill.style())
+            QMessageBox.critical(self, "Configuration Error", result.message)
+            return
+        self.status_pill.setText("Network Configured (192.168.50.2)")
+        self.status_pill.setObjectName("pill_success")
+        self.status_pill.setStyle(self.status_pill.style())
+        QMessageBox.information(self, "Network Configured", f"Client IP configured successfully.\n\n{result.message}")
 
     def test_connectivity(self):
         target_ip = self.host_ip_input.text().strip()
-        ok, msg = self.net_mgr.test_connectivity(target_ip)
+        self.test_ping_btn.setEnabled(False)
+        self._job_thread = FunctionThread(lambda: self.net_mgr.test_connectivity(target_ip), self)
+        self._job_thread.succeeded.connect(self._on_ping_ready)
+        self._job_thread.failed.connect(self._on_ping_failed)
+        self._job_thread.start()
+
+    def _on_ping_ready(self, outcome):
+        self.test_ping_btn.setEnabled(True)
+        ok, msg = outcome
         if ok:
             QMessageBox.information(self, "Connectivity Test", f"✅ {msg}")
         else:
             QMessageBox.warning(self, "Connectivity Test Failed", f"⚠️ {msg}")
+
+    def _on_ping_failed(self, message: str):
+        self.test_ping_btn.setEnabled(True)
+        QMessageBox.warning(self, "Connectivity Test Failed", message)
 
     def connect_to_host(self):
         host_ip = self.host_ip_input.text().strip()
@@ -252,28 +310,48 @@ class ClientView(QWidget):
             QMessageBox.warning(self, "Pairing Code Required", "Please enter the 6-digit pairing code displayed on the Host PC screen.")
             return
 
-        self.client_service = ClientService(
+        service = ClientService(
             host_ip=host_ip,
             port=52428,
             destination_dir=self.dest_input.text().strip()
         )
-
-        # Set up callbacks
-        self.client_service.on_progress_update = self._on_progress_update
-        self.client_service.on_transfer_complete = self._on_transfer_complete
-        self.client_service.on_error = self._on_error
+        service.on_progress_update = self.bridge.progress.emit
+        service.on_transfer_complete = self.bridge.transfer_complete.emit
+        service.on_error = self.bridge.error.emit
+        self.client_service = service
 
         self.status_pill.setText("Authenticating...")
         self.status_pill.setObjectName("pill_warning")
         self.status_pill.setStyle(self.status_pill.style())
-        QApplication.processEvents()
+        self.connect_btn.setEnabled(False)
 
-        ok, msg = self.client_service.connect_and_authenticate(pairing_code)
+        def job():
+            ok, msg = service.connect_and_authenticate(pairing_code)
+            files = []
+            if ok:
+                _listed, files = service.fetch_shared_files()
+            return ok, msg, files
+
+        self._job_thread = FunctionThread(job, self)
+        self._job_thread.succeeded.connect(lambda outcome, ip=host_ip: self._on_connect_finished(ip, outcome))
+        self._job_thread.failed.connect(self._on_connect_failed)
+        self._job_thread.start()
+
+    def _on_connect_failed(self, message: str):
+        self.connect_btn.setEnabled(True)
+        self.status_pill.setText("Auth Failed")
+        self.status_pill.setObjectName("pill_danger")
+        self.status_pill.setStyle(self.status_pill.style())
+        QMessageBox.critical(self, "Connection / Auth Failed", message)
+
+    def _on_connect_finished(self, host_ip: str, outcome):
+        self.connect_btn.setEnabled(True)
+        ok, msg, files = outcome
         if ok:
             self.status_pill.setText(f"Connected to {host_ip}")
             self.status_pill.setObjectName("pill_success")
             self.status_pill.setStyle(self.status_pill.style())
-            self.fetch_files()
+            self._show_remote_files(files or [])
         else:
             self.status_pill.setText("Auth Failed")
             self.status_pill.setObjectName("pill_danger")
@@ -283,8 +361,23 @@ class ClientView(QWidget):
     def fetch_files(self):
         if not self.client_service or not self.client_service.is_connected:
             return
+        service = self.client_service
+        self.fetch_files_btn.setEnabled(False)
+        self._job_thread = FunctionThread(lambda: service.fetch_shared_files(), self)
+        self._job_thread.succeeded.connect(self._on_files_ready)
+        self._job_thread.failed.connect(self._on_files_failed)
+        self._job_thread.start()
 
-        ok, files = self.client_service.fetch_shared_files()
+    def _on_files_failed(self, message: str):
+        self.fetch_files_btn.setEnabled(True)
+        QMessageBox.warning(self, "File List", message)
+
+    def _on_files_ready(self, outcome):
+        self.fetch_files_btn.setEnabled(True)
+        ok, files = outcome
+        self._show_remote_files(files if ok else [])
+
+    def _show_remote_files(self, files):
         self.remote_files = files
         self.files_table.setRowCount(0)
 

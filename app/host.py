@@ -26,6 +26,25 @@ from .error_handler import AppError, get_error
 
 logger = logging.getLogger("OneClickLAN.Host")
 
+
+def format_host_error(exc: Exception, bind_ip: str, port: int) -> str:
+    """User-facing text for a host socket failure."""
+    winerror = getattr(exc, "winerror", None)
+    if isinstance(exc, OSError) and winerror == 10049:
+        return (
+            f"The host could not listen on {bind_ip}:{port}. "
+            "That address is not assigned to this computer, so Windows refused the socket "
+            "(WinError 10049). The network change did not stick. "
+            "Approve the administrator prompt and try again."
+        )
+    if isinstance(exc, OSError) and winerror == 10048:
+        return (
+            f"Port {port} is already in use. Close the other OneClick LAN window "
+            "or change the transfer port in Settings."
+        )
+    return f"Host error: {exc}"
+
+
 class HostService:
     def __init__(
         self,
@@ -51,6 +70,8 @@ class HostService:
         # Threading
         self.server_thread: Optional[threading.Thread] = None
         self.server_sock: Optional[socket.socket] = None
+        self.ready_event = threading.Event()
+        self.start_error: Optional[str] = None
 
         # Callbacks for UI updates
         self.on_client_connected: Optional[Callable[[str], None]] = None
@@ -80,6 +101,8 @@ class HostService:
         self.is_running = True
         self.is_cancelled = False
         self.is_paused = False
+        self.start_error = None
+        self.ready_event.clear()
 
         self.server_thread = threading.Thread(target=self._run_server, daemon=True)
         self.server_thread.start()
@@ -129,6 +152,7 @@ class HostService:
             raw_sock.bind((self.bind_ip, self.port))
             raw_sock.listen(5)
             self.server_sock = raw_sock
+            self.ready_event.set()
 
             if self.on_status_change:
                 self.on_status_change(f"Ready on {self.bind_ip}:{self.port}")
@@ -178,9 +202,13 @@ class HostService:
                         logger.error(f"Error accepting connection: {e}")
 
         except Exception as e:
-            logger.error(f"Host server error: {e}")
+            message = format_host_error(e, self.bind_ip, self.port)
+            logger.error(f"Host server error: {message}")
+            if not self.ready_event.is_set():
+                self.start_error = message
+                self.ready_event.set()
             if self.on_error:
-                self.on_error(f"Host error: {e}")
+                self.on_error(message)
         finally:
             self.is_running = False
 
