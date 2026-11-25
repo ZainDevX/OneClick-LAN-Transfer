@@ -2,24 +2,169 @@
 Host Mode Interface for OneClick LAN Transfer.
 Manages network configuration, pairing code display, file queue selection,
 and active client monitoring.
+
+The screen follows the Starbucks-inspired host mock: cream canvas, white
+cards, and the same controls the transfer service already uses.
 """
 
 from pathlib import Path
 from typing import List, Optional
 
+from PySide6.QtCore import QEvent, QSize, Qt, Signal
+from PySide6.QtGui import QBrush, QColor, QPainter
 from PySide6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QFrame,
-    QComboBox, QTableWidget, QTableWidgetItem, QFileDialog, QHeaderView,
-    QProgressBar, QMessageBox, QApplication
+    QApplication, QComboBox, QFileDialog, QFrame, QHBoxLayout, QHeaderView,
+    QLabel, QMessageBox, QProgressBar, QPushButton, QScrollArea, QSizePolicy,
+    QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget
 )
-from PySide6.QtCore import Qt, Signal
 
 from app.adapter_detection import AdapterInfo
-from app.network_manager import NetworkManager
 from app.host import HostService
+from app.network_manager import NetworkManager
 from app.transfer_engine import TransferProgress
 from ui.chrome import apply_role
+from ui.icons import CircleIcon, IconWidget, StatusDot, make_icon
 from ui.worker import FunctionThread, HostBridge
+
+
+def _adapter_label(adapter: AdapterInfo) -> str:
+    state = "Cable Connected" if adapter.is_connected else "Cable Disconnected"
+    description = adapter.interface_description or adapter.name
+    return f"{adapter.name} - {description} ({state})"
+
+
+def _spaced_code(code: str) -> str:
+    """Show a 6-digit code as grouped, tracked digits. The clipboard keeps the original."""
+    digits = [character for character in code if character.isdigit()]
+    if len(digits) < 6:
+        return "–    –    –     –     –    –    –"
+    left = "   ".join(digits[:3])
+    right = "   ".join(digits[3:6])
+    return f"{left}     –     {right}"
+
+
+class StepBadge(QWidget):
+    def __init__(self, number: str, parent=None):
+        super().__init__(parent)
+        self.number = number
+        self.setFixedSize(26, 26)
+
+    def paintEvent(self, event):
+        del event
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing)
+        painter.setPen(Qt.NoPen)
+        painter.setBrush(QColor("#006241"))
+        painter.drawEllipse(self.rect().adjusted(0, 0, -1, -1))
+        painter.setPen(QColor("#FFFFFF"))
+        font = painter.font()
+        font.setPixelSize(13)
+        font.setBold(True)
+        painter.setFont(font)
+        painter.drawText(self.rect(), Qt.AlignCenter, self.number)
+        painter.end()
+
+
+class StatusMark(QWidget):
+    """Small status glyph for the adapter banner: check, wait, or alert."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._state = "wait"
+        self.setFixedSize(18, 18)
+
+    def set_state(self, state: str) -> None:
+        self._state = state
+        self.update()
+
+    def paintEvent(self, event):
+        del event
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing)
+        painter.setPen(Qt.NoPen)
+        colors = {"ok": "#00754A", "wait": "#8A9690", "bad": "#C82014"}
+        painter.setBrush(QColor(colors.get(self._state, "#C4A35A")))
+        painter.drawEllipse(self.rect().adjusted(0, 0, -1, -1))
+        if self._state == "ok":
+            pen_color = QColor("#FFFFFF")
+            pen = painter.pen()
+            pen.setColor(pen_color)
+            pen.setWidthF(1.8)
+            pen.setCapStyle(Qt.RoundCap)
+            pen.setJoinStyle(Qt.RoundJoin)
+            painter.setPen(pen)
+            rect = self.rect()
+            painter.drawLine(
+                int(rect.left() + rect.width() * 0.28),
+                int(rect.center().y() + 1),
+                int(rect.left() + rect.width() * 0.44),
+                int(rect.top() + rect.height() * 0.66),
+            )
+            painter.drawLine(
+                int(rect.left() + rect.width() * 0.44),
+                int(rect.top() + rect.height() * 0.66),
+                int(rect.left() + rect.width() * 0.74),
+                int(rect.top() + rect.height() * 0.34),
+            )
+        painter.end()
+
+
+class _EmptyFiles(QWidget):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setObjectName("emptyState")
+        self.setAttribute(Qt.WA_TransparentForMouseEvents, True)
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(12, 12, 12, 12)
+        layout.setSpacing(4)
+        layout.addStretch(1)
+        layout.addWidget(IconWidget("folder", 34, "#A39E96"), 0, Qt.AlignCenter)
+        title = QLabel("No files shared yet.")
+        title.setObjectName("emptyTitle")
+        title.setAlignment(Qt.AlignCenter)
+        hint = QLabel("Add files or folders to start sharing.")
+        hint.setObjectName("emptyHint")
+        hint.setAlignment(Qt.AlignCenter)
+        layout.addWidget(title)
+        layout.addWidget(hint)
+        layout.addStretch(1)
+
+
+def _card() -> tuple[QFrame, QVBoxLayout]:
+    card = QFrame()
+    card.setObjectName("hostCard")
+    card.setAttribute(Qt.WA_StyledBackground, True)
+    layout = QVBoxLayout(card)
+    layout.setContentsMargins(16, 12, 16, 12)
+    layout.setSpacing(10)
+    return card, layout
+
+
+def _section_row(number: str, text: str) -> QHBoxLayout:
+    row = QHBoxLayout()
+    row.setSpacing(10)
+    row.addWidget(StepBadge(number))
+    label = QLabel(text)
+    label.setObjectName("hostSection")
+    row.addWidget(label)
+    row.addStretch(1)
+    return row
+
+
+def _pill(text: str, icon: str, handler, primary: bool = False) -> QPushButton:
+    button = QPushButton(text)
+    if primary:
+        button.setObjectName("primary")
+        color = "#FFFFFF"
+    else:
+        color = "#1A1A1A"
+    button.setIcon(make_icon(icon, 16, color))
+    button.setIconSize(QSize(16, 16))
+    button.setCursor(Qt.PointingHandCursor)
+    button.setFocusPolicy(Qt.NoFocus)
+    button.clicked.connect(handler)
+    return button
+
 
 class HostView(QWidget):
     request_back = Signal()
@@ -32,6 +177,7 @@ class HostView(QWidget):
         self.adapters: List[AdapterInfo] = []
         self.selected_paths: List[str] = []
         self._net_thread: Optional[FunctionThread] = None
+        self._pairing_plain = "--- ---"
         self.bridge = HostBridge(self)
         self.bridge.client_connected.connect(self._on_client_connected)
         self.bridge.client_disconnected.connect(self._on_client_disconnected)
@@ -41,152 +187,283 @@ class HostView(QWidget):
         self.init_ui()
 
     def init_ui(self):
-        self.setObjectName("canvas")
+        self.setObjectName("hostCanvas")
         self.setAttribute(Qt.WA_StyledBackground, True)
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(32, 24, 32, 24)
-        layout.setSpacing(14)
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+        outer.setSpacing(0)
 
-        # Header with Back button
-        hdr_layout = QHBoxLayout()
-        self.back_btn = QPushButton("Back")
-        self.back_btn.setObjectName("outline")
-        self.back_btn.setCursor(Qt.PointingHandCursor)
-        self.back_btn.clicked.connect(self.handle_back)
-        hdr_layout.addWidget(self.back_btn)
+        scroll = QScrollArea()
+        scroll.setObjectName("hostScroll")
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.NoFrame)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        scroll.viewport().setObjectName("hostCanvas")
+        scroll.viewport().setAttribute(Qt.WA_StyledBackground, True)
+        outer.addWidget(scroll)
 
-        title = QLabel("Host Mode")
-        title.setObjectName("title")
-        hdr_layout.addWidget(title)
-        hdr_layout.addStretch(1)
+        page = QWidget()
+        page.setObjectName("hostCanvas")
+        page.setAttribute(Qt.WA_StyledBackground, True)
+        scroll.setWidget(page)
 
-        self.service_pill = QLabel("Service Stopped")
-        self.service_pill.setObjectName("pill_warning")
-        hdr_layout.addWidget(self.service_pill)
-        layout.addLayout(hdr_layout)
+        layout = QVBoxLayout(page)
+        layout.setContentsMargins(24, 16, 24, 14)
+        layout.setSpacing(10)
 
-        # Step 1 Card: Adapter & Network Configuration
-        cfg_card = QFrame()
-        cfg_card.setObjectName("card")
-        cfg_layout = QVBoxLayout(cfg_card)
-        cfg_layout.setSpacing(10)
+        header = QHBoxLayout()
+        header.setSpacing(14)
+        header.addWidget(CircleIcon("stack", 52))
+        titles = QVBoxLayout()
+        titles.setSpacing(2)
+        title = QLabel("HOST MODE — File Sharing Server")
+        title.setObjectName("hostTitle")
+        subtitle = QLabel("Share files and folders with other PCs over your local network.")
+        subtitle.setObjectName("hostSubtitle")
+        subtitle.setWordWrap(True)
+        titles.addWidget(title)
+        titles.addWidget(subtitle)
+        header.addLayout(titles, 1)
+        layout.addLayout(header)
 
-        lbl_step1 = QLabel("1. Select Ethernet Adapter & Start Service")
-        lbl_step1.setObjectName("section")
-        cfg_layout.addWidget(lbl_step1)
+        layout.addWidget(self._adapter_card())
+        layout.addWidget(self._pairing_card())
+        layout.addWidget(self._files_card())
+        layout.addWidget(self._monitor_card())
+        layout.addStretch(1)
+        self.apply_adapters(None)
+
+    def _adapter_card(self) -> QFrame:
+        card, layout = _card()
+        layout.addLayout(_section_row("1", "Select Ethernet Adapter & Start Service"))
 
         adapter_row = QHBoxLayout()
-        adapter_row.addWidget(QLabel("Ethernet Adapter:"))
+        adapter_row.setSpacing(10)
+        adapter_label = QLabel("Ethernet Adapter:")
+        adapter_label.setObjectName("fieldLabel")
+        adapter_row.addWidget(adapter_label)
+
         self.adapter_combo = QComboBox()
-        self.adapter_combo.setSizeAdjustPolicy(QComboBox.AdjustToContents)
+        self.adapter_combo.setIconSize(QSize(16, 16))
+        self.adapter_combo.setSizeAdjustPolicy(QComboBox.AdjustToMinimumContentsLengthWithIcon)
+        self.adapter_combo.setMinimumContentsLength(18)
+        self.adapter_combo.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        self.adapter_combo.currentIndexChanged.connect(self._on_adapter_changed)
         adapter_row.addWidget(self.adapter_combo, 1)
 
-        self.refresh_adapters_btn = QPushButton("Refresh")
-        self.refresh_adapters_btn.clicked.connect(self._request_refresh)
+        self.refresh_adapters_btn = _pill("Refresh", "refresh", self._request_refresh)
         adapter_row.addWidget(self.refresh_adapters_btn)
 
-        self.start_host_btn = QPushButton("Start Host (Configure 192.168.50.1)")
-        self.start_host_btn.setObjectName("primary")
-        self.start_host_btn.clicked.connect(self.toggle_host_service)
+        self.start_host_btn = _pill("Start Host (Configure 192.168.50.1)", "play", self.toggle_host_service, primary=True)
         adapter_row.addWidget(self.start_host_btn)
+        layout.addLayout(adapter_row)
 
-        cfg_layout.addLayout(adapter_row)
-        layout.addWidget(cfg_card)
+        self.link_banner = QFrame()
+        self.link_banner.setObjectName("linkWait")
+        self.link_banner.setAttribute(Qt.WA_StyledBackground, True)
+        banner = QHBoxLayout(self.link_banner)
+        banner.setContentsMargins(14, 10, 14, 10)
+        banner.setSpacing(10)
+        self.status_mark = StatusMark()
+        banner.addWidget(self.status_mark)
+        self.service_pill = QLabel("Detecting adapter…")
+        self.service_pill.setObjectName("statusWait")
+        banner.addWidget(self.service_pill)
+        divider = QFrame()
+        divider.setObjectName("vrule")
+        divider.setFixedSize(1, 16)
+        banner.addWidget(divider)
+        ip_prefix = QLabel("IP Address:")
+        ip_prefix.setObjectName("fieldLabel")
+        banner.addWidget(ip_prefix)
+        self.ip_value = QLabel("—")
+        self.ip_value.setObjectName("ipValue")
+        banner.addWidget(self.ip_value)
+        banner.addStretch(1)
+        layout.addWidget(self.link_banner)
+        return card
 
-        # Step 2 Card: Pairing Code & Connection Status
-        self.pairing_card = QFrame()
-        self.pairing_card.setObjectName("card")
-        pair_layout = QHBoxLayout(self.pairing_card)
-        pair_layout.setContentsMargins(20, 15, 20, 15)
+    def _pairing_card(self) -> QFrame:
+        card, layout = _card()
+        body = QHBoxLayout()
+        body.setSpacing(18)
 
-        code_box = QVBoxLayout()
-        code_box.addWidget(QLabel("Secure Pairing Code for Client:"))
-        self.pairing_code_lbl = QLabel("--- ---")
+        left = QVBoxLayout()
+        left.setSpacing(12)
+        left.addLayout(_section_row("2", "Secure Pairing Code for Client"))
+
+        code_row = QHBoxLayout()
+        code_row.setSpacing(10)
+        code_box = QFrame()
+        code_box.setObjectName("codeBox")
+        code_box.setAttribute(Qt.WA_StyledBackground, True)
+        code_layout = QHBoxLayout(code_box)
+        code_layout.setContentsMargins(16, 8, 16, 8)
+        self.pairing_code_lbl = QLabel(_spaced_code(self._pairing_plain))
         self.pairing_code_lbl.setObjectName("pairing_code")
-        code_box.addWidget(self.pairing_code_lbl)
+        self.pairing_code_lbl.setAlignment(Qt.AlignCenter)
+        code_layout.addWidget(self.pairing_code_lbl)
+        code_row.addWidget(code_box)
 
-        btn_row = QHBoxLayout()
-        self.copy_code_btn = QPushButton("Copy Code")
-        self.copy_code_btn.clicked.connect(self.copy_pairing_code)
-        btn_row.addWidget(self.copy_code_btn)
+        self.copy_code_btn = _pill("Copy Code", "copy", self.copy_pairing_code)
+        code_row.addWidget(self.copy_code_btn)
+        self.refresh_code_btn = _pill("Refresh Code", "refresh", self.refresh_code)
+        code_row.addWidget(self.refresh_code_btn)
+        code_row.addStretch(1)
+        left.addLayout(code_row)
+        body.addLayout(left, 3)
 
-        self.refresh_code_btn = QPushButton("Refresh Code")
-        self.refresh_code_btn.clicked.connect(self.refresh_code)
-        btn_row.addWidget(self.refresh_code_btn)
-        btn_row.addStretch(1)
-        code_box.addLayout(btn_row)
-        pair_layout.addLayout(code_box, 1)
+        rule = QFrame()
+        rule.setObjectName("vrule")
+        rule.setFixedWidth(1)
+        rule.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Expanding)
+        body.addWidget(rule)
 
-        client_box = QVBoxLayout()
-        client_box.addWidget(QLabel("Connected Client:"))
+        client_col = QVBoxLayout()
+        client_col.setSpacing(6)
+        client_head = QHBoxLayout()
+        client_head.setSpacing(8)
+        client_head.addWidget(StatusDot("#00754A", 10))
+        client_title = QLabel("Connected Client:")
+        client_title.setObjectName("clientTitle")
+        client_head.addWidget(client_title)
+        client_head.addStretch(1)
+        client_col.addLayout(client_head)
         self.client_info_lbl = QLabel("Waiting for client connection over Cat6 cable...")
         self.client_info_lbl.setObjectName("muted")
-        client_box.addWidget(self.client_info_lbl)
-        client_box.addStretch(1)
-        pair_layout.addLayout(client_box, 1)
+        self.client_info_lbl.setWordWrap(True)
+        client_col.addWidget(self.client_info_lbl)
+        client_col.addStretch(1)
+        body.addLayout(client_col, 2)
+        layout.addLayout(body)
+        return card
 
-        layout.addWidget(self.pairing_card)
-
-        # Step 3 Card: File Selection Queue
-        files_card = QFrame()
-        files_card.setObjectName("card")
-        files_layout = QVBoxLayout(files_card)
-
-        files_hdr = QHBoxLayout()
-        lbl_step3 = QLabel("2. Shared Files and Folders")
-        lbl_step3.setObjectName("section")
-        files_hdr.addWidget(lbl_step3)
-        files_hdr.addStretch(1)
-
-        self.add_files_btn = QPushButton("Add Files...")
-        self.add_files_btn.clicked.connect(self.add_files)
+    def _files_card(self) -> QFrame:
+        card, layout = _card()
+        files_hdr = _section_row("3", "Shared Files and Folders")
+        self.add_files_btn = _pill("Add Files...", "plus", self.add_files)
+        self.add_folder_btn = _pill("Add Folder...", "folder", self.add_folder)
+        self.clear_files_btn = _pill("Clear All", "trash", self.clear_files)
         files_hdr.addWidget(self.add_files_btn)
-
-        self.add_folder_btn = QPushButton("Add Folder...")
-        self.add_folder_btn.clicked.connect(self.add_folder)
         files_hdr.addWidget(self.add_folder_btn)
-
-        self.clear_files_btn = QPushButton("Clear All")
-        self.clear_files_btn.clicked.connect(self.clear_files)
         files_hdr.addWidget(self.clear_files_btn)
-        files_layout.addLayout(files_hdr)
+        layout.addLayout(files_hdr)
 
         self.files_table = QTableWidget(0, 3)
         self.files_table.setHorizontalHeaderLabels(["Name / Relative Path", "Size", "Status"])
-        self.files_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch)
-        self.files_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeToContents)
-        self.files_table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeToContents)
-        files_layout.addWidget(self.files_table)
+        header = self.files_table.horizontalHeader()
+        header.setSectionResizeMode(0, QHeaderView.Stretch)
+        header.setSectionResizeMode(1, QHeaderView.ResizeToContents)
+        header.setSectionResizeMode(2, QHeaderView.ResizeToContents)
+        header.setStretchLastSection(False)
+        header.setDefaultAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+        self.files_table.horizontalHeaderItem(1).setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        self.files_table.horizontalHeaderItem(2).setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        self.files_table.verticalHeader().setVisible(False)
+        self.files_table.verticalHeader().setDefaultSectionSize(36)
+        self.files_table.setShowGrid(False)
+        self.files_table.setAlternatingRowColors(True)
+        self.files_table.setSelectionMode(QTableWidget.NoSelection)
+        self.files_table.setFocusPolicy(Qt.NoFocus)
+        self.files_table.setEditTriggers(QTableWidget.NoEditTriggers)
+        self.files_table.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.files_table.setFixedHeight(148)
+        self._empty = _EmptyFiles(self.files_table.viewport())
+        self.files_table.viewport().installEventFilter(self)
+        layout.addWidget(self.files_table)
 
         self.total_size_lbl = QLabel("Total: 0 files (0 MB)")
         self.total_size_lbl.setObjectName("muted")
-        files_layout.addWidget(self.total_size_lbl)
-        layout.addWidget(files_card)
+        self.total_size_lbl.hide()
+        layout.addWidget(self.total_size_lbl)
+        return card
 
-        # Live Transfer Monitor
-        self.monitor_card = QFrame()
-        self.monitor_card.setObjectName("card")
-        mon_layout = QVBoxLayout(self.monitor_card)
-
+    def _monitor_card(self) -> QFrame:
+        card, layout = _card()
+        layout.setSpacing(10)
         mon_hdr = QHBoxLayout()
-        mon_hdr.addWidget(QLabel("Live Transfer Monitor:"))
+        mon_hdr.setSpacing(8)
+        mon_hdr.addWidget(IconWidget("monitor", 18, "#006241"))
+        monitor_title = QLabel("Live Transfer Monitor:")
+        monitor_title.setObjectName("speed")
+        mon_hdr.addWidget(monitor_title)
         self.transfer_speed_lbl = QLabel("0.0 MB/s")
         self.transfer_speed_lbl.setObjectName("speed")
         mon_hdr.addWidget(self.transfer_speed_lbl)
         mon_hdr.addStretch(1)
         self.eta_lbl = QLabel("ETA: --")
+        self.eta_lbl.setObjectName("hostEta")
         mon_hdr.addWidget(self.eta_lbl)
-        mon_layout.addLayout(mon_hdr)
+        layout.addLayout(mon_hdr)
 
         self.progress_bar = QProgressBar()
+        self.progress_bar.setRange(0, 100)
         self.progress_bar.setValue(0)
-        mon_layout.addWidget(self.progress_bar)
+        self.progress_bar.setFormat("%p%")
+        self.progress_bar.setTextVisible(True)
+        layout.addWidget(self.progress_bar)
 
+        detail_row = QHBoxLayout()
+        detail_row.setSpacing(8)
+        detail_row.addWidget(StatusDot("#2EAE70", 10))
         self.progress_detail_lbl = QLabel("Idle - Ready to stream")
         self.progress_detail_lbl.setObjectName("muted")
-        mon_layout.addWidget(self.progress_detail_lbl)
-        layout.addWidget(self.monitor_card)
-        self.apply_adapters(None)
+        detail_row.addWidget(self.progress_detail_lbl)
+        detail_row.addStretch(1)
+        layout.addLayout(detail_row)
+        return card
+
+    def eventFilter(self, obj, event):
+        if obj is self.files_table.viewport() and event.type() == QEvent.Resize:
+            self._empty.setGeometry(obj.rect())
+        return super().eventFilter(obj, event)
+
+    def _show_code(self, code: str) -> None:
+        self._pairing_plain = code
+        self.pairing_code_lbl.setText(_spaced_code(code))
+
+    def _set_start_button(self, running: bool) -> None:
+        if running:
+            self.start_host_btn.setText("Stop Host Service")
+            self.start_host_btn.setIcon(make_icon("stop", 16, "#FFFFFF"))
+            apply_role(self.start_host_btn, "danger")
+        else:
+            self.start_host_btn.setText("Start Host (Configure 192.168.50.1)")
+            self.start_host_btn.setIcon(make_icon("play", 16, "#FFFFFF"))
+            apply_role(self.start_host_btn, "primary")
+
+    def _set_service_status(self, text: str, kind: str, ip: str) -> None:
+        roles = {"ok": "statusOk", "wait": "statusWait", "bad": "statusBad"}
+        banners = {"ok": "linkOk", "wait": "linkWait", "bad": "linkBad"}
+        self.service_pill.setText(text)
+        apply_role(self.service_pill, roles[kind])
+        apply_role(self.link_banner, banners[kind])
+        self.ip_value.setText(ip)
+        self.status_mark.set_state(kind)
+
+    def _show_idle_link(self) -> None:
+        if self.host_service and self.host_service.is_running:
+            return
+        if not self.adapters:
+            detecting = (
+                self.adapter_combo.count() == 1
+                and self.adapter_combo.itemText(0).startswith("Detecting")
+            )
+            if detecting:
+                self._set_service_status("Detecting adapter…", "wait", "—")
+            else:
+                self._set_service_status("No adapter found", "bad", "—")
+            return
+        index = self.adapter_combo.currentIndex()
+        adapter = self.adapters[index] if 0 <= index < len(self.adapters) else None
+        if adapter is not None and adapter.is_connected:
+            ip = adapter.config.ipv4_address or "—"
+            self._set_service_status("Connected", "ok", ip)
+        else:
+            self._set_service_status("Cable disconnected", "wait", "—")
+
+    def _on_adapter_changed(self, _index: int) -> None:
+        self._show_idle_link()
 
     def _request_refresh(self):
         window = self.window()
@@ -214,20 +491,20 @@ class HostView(QWidget):
             self.start_host_btn.setEnabled(False)
         else:
             restore_at = 0
+            icon = make_icon("ethernet", 16, "#006241")
             for position, adapter in enumerate(self.adapters):
-                self.adapter_combo.addItem(adapter.display_name(), adapter)
+                self.adapter_combo.addItem(icon, _adapter_label(adapter), adapter)
                 if adapter.interface_index == previous_index:
                     restore_at = position
             self.adapter_combo.setCurrentIndex(restore_at)
             self.start_host_btn.setEnabled(self._net_thread is None or not self._net_thread.isRunning())
         self.adapter_combo.blockSignals(False)
+        self._show_idle_link()
 
     def toggle_host_service(self):
         if self.host_service and self.host_service.is_running:
-            # Stop Host
             self.stop_host()
         else:
-            # Start Host
             self.start_host()
 
     def start_host(self):
@@ -237,11 +514,9 @@ class HostView(QWidget):
 
         adapter = self.adapters[idx]
         if not adapter.is_connected:
-            self.service_pill.setText("Cable unplugged — configuring anyway...")
+            self._set_service_status("Cable unplugged — configuring anyway…", "wait", "—")
         else:
-            self.service_pill.setText("Configuring IP...")
-        self.service_pill.setObjectName("pill_warning")
-        self.service_pill.setStyle(self.service_pill.style())
+            self._set_service_status("Configuring network…", "wait", "—")
         self.start_host_btn.setEnabled(False)
         self.adapter_combo.setEnabled(False)
 
@@ -270,35 +545,27 @@ class HostView(QWidget):
         self.host_service.on_progress_update = self.bridge.progress.emit
         self.host_service.on_status_change = self.bridge.status.emit
         self.host_service.on_error = self.bridge.error.emit
-        self.service_pill.setText("Starting host...")
+        self._set_service_status("Starting host…", "wait", "—")
         self.host_service.start()
 
     def _on_host_status(self, text: str):
         if text.startswith("Ready on") and self.host_service is not None:
-            self.pairing_code_lbl.setText(self.host_service.display_code)
-            self.start_host_btn.setText("Stop Host Service")
-            self.start_host_btn.setObjectName("danger")
-            self.start_host_btn.setStyle(self.start_host_btn.style())
+            self._show_code(self.host_service.display_code)
+            self._set_start_button(True)
             self.start_host_btn.setEnabled(True)
             self.adapter_combo.setEnabled(False)
-            self.service_pill.setText(f"Host Active ({self.host_service.bind_ip})")
-            self.service_pill.setObjectName("pill_success")
-            self.service_pill.setStyle(self.service_pill.style())
+            self._set_service_status("Connected", "ok", self.host_service.bind_ip)
 
     def _on_host_error(self, message: str):
         self._fail_host_config(message)
 
     def _fail_host_config(self, message: str):
         self._release_host_service()
-        self.start_host_btn.setText("Start Host (Configure 192.168.50.1)")
-        self.start_host_btn.setObjectName("primary")
-        self.start_host_btn.setStyle(self.start_host_btn.style())
+        self._set_start_button(False)
         self.start_host_btn.setEnabled(True)
         self.adapter_combo.setEnabled(True)
-        self.service_pill.setText("Config Failed")
-        self.service_pill.setObjectName("pill_danger")
-        self.service_pill.setStyle(self.service_pill.style())
-        self.pairing_code_lbl.setText("--- ---")
+        self._set_service_status("Configuration failed", "bad", "—")
+        self._show_code("--- ---")
         QMessageBox.critical(self, "Host Did Not Start", message)
 
     def _notify_network_changed(self):
@@ -321,18 +588,13 @@ class HostView(QWidget):
 
     def stop_host(self):
         self._release_host_service()
-
-        self.start_host_btn.setText("Start Host (Configure 192.168.50.1)")
-        self.start_host_btn.setObjectName("primary")
-        self.start_host_btn.setStyle(self.start_host_btn.style())
+        self._set_start_button(False)
         self.start_host_btn.setEnabled(bool(self.adapters))
         self.adapter_combo.setEnabled(True)
-
-        self.service_pill.setText("Service Stopped")
-        self.service_pill.setObjectName("pill_warning")
-        self.service_pill.setStyle(self.service_pill.style())
         self.client_info_lbl.setText("Waiting for client connection over Cat6 cable...")
-        self.pairing_code_lbl.setText("--- ---")
+        apply_role(self.client_info_lbl, "muted")
+        self._show_code("--- ---")
+        self._show_idle_link()
 
     def _on_client_connected(self, addr: str):
         self.client_info_lbl.setText(f"Client Connected: {addr}")
@@ -355,14 +617,14 @@ class HostView(QWidget):
             self.eta_lbl.setText("ETA: --")
 
     def copy_pairing_code(self):
-        code = self.pairing_code_lbl.text()
-        if code and code != "--- ---":
+        code = self._pairing_plain
+        digits = "".join(character for character in code if character.isdigit())
+        if len(digits) == 6:
             QApplication.clipboard().setText(code)
 
     def refresh_code(self):
         if self.host_service:
-            new_code = self.host_service.refresh_pairing_code()
-            self.pairing_code_lbl.setText(new_code)
+            self._show_code(self.host_service.refresh_pairing_code())
 
     def add_files(self):
         files, _ = QFileDialog.getOpenFileNames(self, "Select Files to Share")
@@ -396,21 +658,32 @@ class HostView(QWidget):
                 size = p.stat().st_size
                 total_bytes += size
                 size_str = f"{size / (1024*1024):.2f} MB" if size < 1024**3 else f"{size / (1024**3):.2f} GB"
-                self.files_table.setItem(row, 0, QTableWidgetItem(p.name))
-                self.files_table.setItem(row, 1, QTableWidgetItem(size_str))
-                self.files_table.setItem(row, 2, QTableWidgetItem("Ready"))
+                self.files_table.setItem(row, 0, self._cell(p.name))
+                self.files_table.setItem(row, 1, self._cell(size_str, Qt.AlignRight | Qt.AlignVCenter))
+                self.files_table.setItem(row, 2, self._cell("Ready", Qt.AlignRight | Qt.AlignVCenter, "#006241"))
             else:
-                self.files_table.setItem(row, 0, QTableWidgetItem(f"{p.name} (Folder)"))
-                self.files_table.setItem(row, 1, QTableWidgetItem("Folder"))
-                self.files_table.setItem(row, 2, QTableWidgetItem("Ready"))
+                self.files_table.setItem(row, 0, self._cell(f"{p.name} (Folder)"))
+                self.files_table.setItem(row, 1, self._cell("Folder", Qt.AlignRight | Qt.AlignVCenter))
+                self.files_table.setItem(row, 2, self._cell("Ready", Qt.AlignRight | Qt.AlignVCenter, "#006241"))
 
         total_mb = total_bytes / (1024 * 1024)
         total_gb = total_bytes / (1024 ** 3)
         size_display = f"{total_gb:.2f} GB" if total_gb >= 1.0 else f"{total_mb:.1f} MB"
         self.total_size_lbl.setText(f"Total: {len(self.selected_paths)} items ({size_display})")
+        self.total_size_lbl.setVisible(bool(self.selected_paths))
+        self._empty.setVisible(self.files_table.rowCount() == 0)
+        self._empty.setGeometry(self.files_table.viewport().rect())
 
         if self.host_service:
             self.host_service.set_shared_paths(self.selected_paths)
+
+    def _cell(self, text: str, alignment=Qt.AlignLeft | Qt.AlignVCenter, color: str | None = None) -> QTableWidgetItem:
+        item = QTableWidgetItem(text)
+        item.setTextAlignment(alignment)
+        item.setFlags(Qt.ItemIsEnabled)
+        if color:
+            item.setForeground(QBrush(QColor(color)))
+        return item
 
     def can_leave(self) -> bool:
         if self.host_service and self.host_service.is_running:

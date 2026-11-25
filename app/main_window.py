@@ -52,7 +52,7 @@ class MainWindow(QMainWindow):
 
         self.setWindowFlags(Qt.Window | Qt.FramelessWindowHint)
         self.setWindowTitle("OneClick LAN Transfer")
-        self.resize(1280, 760)
+        self.resize(1280, 820)
         self.setMinimumSize(1040, 680)
 
         icon_path = Path(__file__).parent.parent / "assets" / "app.ico"
@@ -119,7 +119,9 @@ class MainWindow(QMainWindow):
         self.sidebar.set_active("home")
 
     def _on_sidebar(self, key: str) -> None:
-        index = {"home": 0, "settings": 3, "about": 4, "help": 5}[key]
+        index = {"home": 0, "host": 1, "about": 4, "help": 5}.get(key)
+        if index is None:
+            return
         current = self.stack.currentIndex()
         if current == index:
             self._sync_nav(index)
@@ -133,7 +135,7 @@ class MainWindow(QMainWindow):
         self.switch_page(index)
 
     def _sync_nav(self, index: int) -> None:
-        self.sidebar.set_active({0: "home", 3: "settings", 4: "about", 5: "help"}.get(index))
+        self.sidebar.set_active({0: "home", 1: "host", 4: "about", 5: "help"}.get(index))
 
     def start_adapter_detection(self):
         """Called after the window is shown. The scan itself is not on the GUI thread."""

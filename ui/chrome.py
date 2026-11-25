@@ -34,7 +34,7 @@ class TitleBar(QFrame):
     def __init__(self, window: QWidget):
         super().__init__(window)
         self.setObjectName("titlebar")
-        self.setFixedHeight(52)
+        self.setFixedHeight(44)
         self._drag_origin = None
         self._window_origin = None
         self._build(window)
@@ -44,7 +44,7 @@ class TitleBar(QFrame):
         layout.setContentsMargins(16, 0, 0, 0)
         layout.setSpacing(10)
 
-        layout.addWidget(LogoMark(28, 8))
+        layout.addWidget(LogoMark(24))
         title = QLabel("OneClick LAN Transfer")
         title.setObjectName("appTitle")
         layout.addWidget(title)
@@ -62,7 +62,7 @@ class TitleBar(QFrame):
         button.setObjectName("winClose" if close else "winBtn")
         button.setIcon(make_icon(kind, 16, "#FFFFFF"))
         button.setIconSize(button.iconSize())
-        button.setFixedSize(46, 52)
+        button.setFixedSize(46, 44)
         button.setCursor(Qt.PointingHandCursor)
         button.setFocusPolicy(Qt.NoFocus)
         button.clicked.connect(handler)
@@ -132,33 +132,36 @@ class Sidebar(QFrame):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setObjectName("sidebar")
-        self.setFixedWidth(220)
+        self.setFixedWidth(216)
         self._buttons = {}
         self._build()
 
     def _build(self) -> None:
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(14, 28, 14, 22)
-        layout.setSpacing(2)
+        layout.setContentsMargins(16, 26, 16, 20)
+        layout.setSpacing(4)
 
         logo_row = QHBoxLayout()
         logo_row.addStretch(1)
-        logo_row.addWidget(LogoMark(72, 18))
+        logo_row.addWidget(LogoMark(78))
         logo_row.addStretch(1)
         layout.addLayout(logo_row)
-        layout.addSpacing(12)
+        layout.addSpacing(8)
 
+        wordmark = QVBoxLayout()
+        wordmark.setSpacing(0)
         for text in ("OneClick", "LAN Transfer"):
             label = QLabel(text)
             label.setObjectName("wordmark")
             label.setAlignment(Qt.AlignCenter)
-            layout.addWidget(label)
+            wordmark.addWidget(label)
+        layout.addLayout(wordmark)
 
-        layout.addSpacing(26)
+        layout.addSpacing(22)
 
         for key, text, kind in (
             ("home", "Home", "home"),
-            ("settings", "Settings", "gear"),
+            ("host", "Host Mode", "stack"),
             ("about", "About", "info"),
             ("help", "Help", "help"),
         ):
@@ -176,9 +179,15 @@ class Sidebar(QFrame):
             button.clicked.connect(lambda _checked=False, name=key: self.navigate.emit(name))
             self._buttons[key] = button
             layout.addWidget(button)
-            layout.addSpacing(4)
+            layout.addSpacing(2)
 
         layout.addStretch(1)
+
+        rule = QFrame()
+        rule.setObjectName("sideRule")
+        rule.setFixedHeight(1)
+        layout.addWidget(rule)
+        layout.addSpacing(12)
 
         ready_row = QHBoxLayout()
         ready_row.setContentsMargins(18, 0, 0, 0)

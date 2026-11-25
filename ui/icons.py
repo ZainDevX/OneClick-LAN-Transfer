@@ -61,6 +61,20 @@ def paint_icon(painter: QPainter, kind: str, rect: QRectF, color: QColor) -> Non
         inset = rect.width() * 0.28
         painter.drawLine(QPointF(rect.left() + inset, rect.top() + inset), QPointF(rect.right() - inset, rect.bottom() - inset))
         painter.drawLine(QPointF(rect.right() - inset, rect.top() + inset), QPointF(rect.left() + inset, rect.bottom() - inset))
+    elif kind == "stack":
+        _stack(painter, rect, color, stroke)
+    elif kind == "play":
+        _play(painter, rect, color)
+    elif kind == "stop":
+        _stop(painter, rect, color)
+    elif kind == "plus":
+        _plus(painter, rect, color, stroke)
+    elif kind == "folder":
+        _folder(painter, rect, color, stroke)
+    elif kind == "trash":
+        _trash(painter, rect, color, stroke)
+    elif kind == "copy":
+        _copy(painter, rect, color, stroke)
     painter.restore()
 
 
@@ -304,10 +318,118 @@ def _restore(painter: QPainter, rect: QRectF, color: QColor, stroke: float) -> N
     back = rect.adjusted(rect.width() * 0.28, stroke, -stroke, -rect.height() * 0.28)
     front = rect.adjusted(stroke, rect.height() * 0.28, -rect.width() * 0.28, -stroke)
     painter.drawRoundedRect(back, 1.5, 1.5)
-    painter.setBrush(QColor("#083A29"))
+    painter.setBrush(QColor("#1E3932"))
     painter.drawRoundedRect(front, 1.5, 1.5)
     painter.setBrush(Qt.NoBrush)
     painter.drawRoundedRect(front, 1.5, 1.5)
+
+
+def _stack(painter: QPainter, rect: QRectF, color: QColor, stroke: float) -> None:
+    """Two solid stacked slabs for the Host Mode mark."""
+    del stroke
+    painter.setPen(Qt.NoPen)
+    painter.setBrush(color)
+    inset_x = rect.width() * 0.14
+    box_h = rect.height() * 0.30
+    gap = rect.height() * 0.14
+    width = rect.width() - 2 * inset_x
+    top_y = rect.center().y() - gap / 2 - box_h
+    radius = min(2.6, box_h * 0.42)
+    painter.drawRoundedRect(QRectF(rect.left() + inset_x, top_y, width, box_h), radius, radius)
+    painter.drawRoundedRect(
+        QRectF(rect.left() + inset_x, top_y + box_h + gap, width, box_h),
+        radius,
+        radius,
+    )
+
+
+def _play(painter: QPainter, rect: QRectF, color: QColor) -> None:
+    painter.setPen(Qt.NoPen)
+    painter.setBrush(color)
+    path = QPainterPath()
+    path.moveTo(rect.left() + rect.width() * 0.34, rect.top() + rect.height() * 0.22)
+    path.lineTo(rect.left() + rect.width() * 0.34, rect.bottom() - rect.height() * 0.22)
+    path.lineTo(rect.right() - rect.width() * 0.24, rect.center().y())
+    path.closeSubpath()
+    painter.drawPath(path)
+
+
+def _stop(painter: QPainter, rect: QRectF, color: QColor) -> None:
+    painter.setPen(Qt.NoPen)
+    painter.setBrush(color)
+    side = rect.width() * 0.38
+    box = QRectF(rect.center().x() - side / 2, rect.center().y() - side / 2, side, side)
+    painter.drawRoundedRect(box, 2, 2)
+
+
+def _plus(painter: QPainter, rect: QRectF, color: QColor, stroke: float) -> None:
+    painter.setPen(_pen(color, stroke * 1.25))
+    center = rect.center()
+    arm = rect.width() * 0.26
+    painter.drawLine(QPointF(center.x() - arm, center.y()), QPointF(center.x() + arm, center.y()))
+    painter.drawLine(QPointF(center.x(), center.y() - arm), QPointF(center.x(), center.y() + arm))
+
+
+def _folder(painter: QPainter, rect: QRectF, color: QColor, stroke: float) -> None:
+    painter.setPen(_pen(color, stroke))
+    painter.setBrush(Qt.NoBrush)
+    left = rect.left() + rect.width() * 0.12
+    right = rect.right() - rect.width() * 0.12
+    bottom = rect.bottom() - rect.height() * 0.16
+    top = rect.top() + rect.height() * 0.36
+    tab = rect.height() * 0.14
+    path = QPainterPath()
+    path.moveTo(left, top)
+    path.lineTo(left + (right - left) * 0.38, top)
+    path.lineTo(left + (right - left) * 0.48, top - tab)
+    path.lineTo(right, top - tab)
+    path.lineTo(right, bottom)
+    path.lineTo(left, bottom)
+    path.closeSubpath()
+    painter.drawPath(path)
+
+
+def _trash(painter: QPainter, rect: QRectF, color: QColor, stroke: float) -> None:
+    painter.setPen(_pen(color, stroke))
+    painter.setBrush(Qt.NoBrush)
+    left = rect.left() + rect.width() * 0.24
+    right = rect.right() - rect.width() * 0.24
+    lid = rect.top() + rect.height() * 0.30
+    painter.drawLine(QPointF(rect.left() + rect.width() * 0.16, lid), QPointF(rect.right() - rect.width() * 0.16, lid))
+    handle = QRectF(
+        rect.center().x() - rect.width() * 0.12,
+        rect.top() + rect.height() * 0.12,
+        rect.width() * 0.24,
+        rect.height() * 0.16,
+    )
+    painter.drawArc(handle, 0, 180 * 16)
+    body = QPainterPath()
+    body.moveTo(left, lid + rect.height() * 0.06)
+    body.lineTo(right, lid + rect.height() * 0.06)
+    body.lineTo(right - rect.width() * 0.06, rect.bottom() - rect.height() * 0.12)
+    body.lineTo(left + rect.width() * 0.06, rect.bottom() - rect.height() * 0.12)
+    body.closeSubpath()
+    painter.drawPath(body)
+
+
+def _copy(painter: QPainter, rect: QRectF, color: QColor, stroke: float) -> None:
+    painter.setPen(_pen(color, stroke))
+    painter.setBrush(Qt.NoBrush)
+    back = QRectF(
+        rect.left() + rect.width() * 0.34,
+        rect.top() + rect.height() * 0.14,
+        rect.width() * 0.46,
+        rect.height() * 0.52,
+    )
+    front = QRectF(
+        rect.left() + rect.width() * 0.16,
+        rect.top() + rect.height() * 0.32,
+        rect.width() * 0.46,
+        rect.height() * 0.52,
+    )
+    painter.drawRoundedRect(back, 2, 2)
+    painter.setBrush(QColor("#00000000"))
+    painter.drawRoundedRect(front, 2, 2)
 
 
 def make_icon(kind: str, size: int, color: str) -> QIcon:
@@ -339,9 +461,11 @@ class IconWidget(QWidget):
 class CircleIcon(QWidget):
     """Mint disc with a green glyph, used on the Host and Client cards."""
 
-    def __init__(self, kind: str, diameter: int = 64, parent=None):
+    def __init__(self, kind: str, diameter: int = 64, fill: str = "#D4E9E2", glyph: str = "#006241", parent=None):
         super().__init__(parent)
         self.kind = kind
+        self.fill = QColor(fill)
+        self.glyph = QColor(glyph)
         self.setFixedSize(diameter, diameter)
         self.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
 
@@ -350,14 +474,14 @@ class CircleIcon(QWidget):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.Antialiasing)
         painter.setPen(Qt.NoPen)
-        painter.setBrush(QColor("#E5F3EC"))
+        painter.setBrush(self.fill)
         painter.drawEllipse(self.rect().adjusted(1, 1, -1, -1))
-        margin = self.width() * 0.24
+        margin = self.width() * 0.26
         paint_icon(
             painter,
             self.kind,
             QRectF(margin, margin, self.width() - 2 * margin, self.height() - 2 * margin),
-            QColor("#006241"),
+            self.glyph,
         )
         painter.end()
 
@@ -375,7 +499,7 @@ class LogoMark(QWidget):
         painter.setRenderHint(QPainter.Antialiasing)
         painter.setPen(Qt.NoPen)
         painter.setBrush(QColor("#00754A"))
-        painter.drawRoundedRect(self.rect().adjusted(0, 0, -1, -1), self.radius, self.radius)
+        painter.drawEllipse(self.rect().adjusted(0, 0, -1, -1))
         inset = self.width() * 0.18
         paint_icon(
             painter,

@@ -7,11 +7,11 @@ shifts the content surfaces darker.
 
 _CHROME = """
 QMainWindow {
-    background-color: #083A29;
+    background-color: #1E3932;
 }
 
 QFrame#sidebar, QFrame#titlebar {
-    background-color: #083A29;
+    background-color: #1E3932;
     border: none;
 }
 
@@ -61,8 +61,15 @@ QPushButton#nav:hover {
 }
 
 QPushButton#nav:checked, QPushButton#nav:checked:hover {
-    background: #1E5646;
+    background: #2C6A56;
     color: #FFFFFF;
+}
+
+QFrame#sideRule {
+    background-color: rgba(255, 255, 255, 0.16);
+    border: none;
+    max-height: 1px;
+    min-height: 1px;
 }
 
 QPushButton#winBtn, QPushButton#winClose {
@@ -402,8 +409,298 @@ QScrollBar::handle:vertical {{
 QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{
     height: 0px;
 }}
-"""
+""" + _HOST
 
+
+# Host Mode is painted with the Starbucks light tokens even when the rest of
+# the app is in the dark theme, so this screen stays on the warm cream canvas.
+_HOST = """
+QWidget#hostCanvas, QScrollArea#hostScroll {
+    background-color: #F2F0EB;
+    color: rgba(0, 0, 0, 0.87);
+    border: none;
+}
+
+QWidget#hostCanvas QLabel {
+    color: rgba(0, 0, 0, 0.87);
+    background: transparent;
+    font-family: "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+}
+
+QWidget#hostCanvas QLabel#hostTitle {
+    color: #006241;
+    font-size: 22px;
+    font-weight: 700;
+}
+
+QWidget#hostCanvas QLabel#hostSubtitle,
+QWidget#hostCanvas QLabel#muted,
+QWidget#hostCanvas QLabel#emptyHint {
+    color: rgba(0, 0, 0, 0.58);
+    font-size: 13px;
+    font-weight: 400;
+}
+
+QWidget#hostCanvas QLabel#hostSection {
+    color: #006241;
+    font-size: 16px;
+    font-weight: 700;
+}
+
+QWidget#hostCanvas QLabel#fieldLabel,
+QWidget#hostCanvas QLabel#clientTitle,
+QWidget#hostCanvas QLabel#ipValue,
+QWidget#hostCanvas QLabel#hostEta {
+    color: rgba(0, 0, 0, 0.87);
+    font-size: 14px;
+    font-weight: 600;
+}
+
+QWidget#hostCanvas QLabel#statusOk,
+QWidget#hostCanvas QLabel#speed,
+QWidget#hostCanvas QLabel#statusGood {
+    color: #006241;
+    font-size: 14px;
+    font-weight: 700;
+}
+
+QWidget#hostCanvas QLabel#statusWait {
+    color: rgba(0, 0, 0, 0.87);
+    font-size: 14px;
+    font-weight: 700;
+}
+
+QWidget#hostCanvas QLabel#statusBad {
+    color: #C82014;
+    font-size: 14px;
+    font-weight: 700;
+}
+
+QWidget#hostCanvas QLabel#pairing_code {
+    color: #006241;
+    background: transparent;
+    border: none;
+    border-radius: 0px;
+    padding: 0px;
+    font-family: "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+    font-size: 22px;
+    font-weight: 700;
+}
+
+QWidget#hostCanvas QLabel#emptyTitle {
+    color: rgba(0, 0, 0, 0.58);
+    font-size: 14px;
+    font-weight: 600;
+}
+
+QFrame#hostCard {
+    background-color: #FFFFFF;
+    border: 1px solid rgba(0, 0, 0, 0.08);
+    border-radius: 12px;
+}
+
+QFrame#codeBox {
+    background-color: #FFFFFF;
+    border: 1px solid #E0DCD4;
+    border-radius: 12px;
+}
+
+QFrame#linkOk {
+    background-color: #E7F3EC;
+    border: none;
+    border-radius: 10px;
+}
+
+QFrame#linkWait {
+    background-color: #F4F1EB;
+    border: none;
+    border-radius: 10px;
+}
+
+QFrame#linkBad {
+    background-color: #F8E8E6;
+    border: none;
+    border-radius: 10px;
+}
+
+QFrame#vrule {
+    background-color: #E4E0DA;
+    border: none;
+    max-width: 1px;
+}
+
+QWidget#emptyState {
+    background: transparent;
+}
+
+QWidget#hostCanvas QPushButton {
+    background-color: #FFFFFF;
+    color: rgba(0, 0, 0, 0.87);
+    border: 1px solid #D5D1CA;
+    border-radius: 20px;
+    padding: 6px 14px;
+    font-size: 13px;
+    font-weight: 600;
+    min-height: 36px;
+}
+
+QWidget#hostCanvas QPushButton:hover {
+    background-color: #F7F4EF;
+}
+
+QWidget#hostCanvas QPushButton:pressed {
+    background-color: #EFEBE4;
+    margin: 1px 2px;
+}
+
+QWidget#hostCanvas QPushButton:disabled {
+    background-color: #F6F3EE;
+    color: rgba(0, 0, 0, 0.38);
+    border-color: #E4E0DA;
+}
+
+QWidget#hostCanvas QPushButton#primary {
+    background-color: #00754A;
+    color: #FFFFFF;
+    border: 1px solid #00754A;
+    border-radius: 22px;
+    font-size: 14px;
+    font-weight: 600;
+    padding: 8px 18px;
+    min-height: 40px;
+}
+
+QWidget#hostCanvas QPushButton#primary:hover {
+    background-color: #006241;
+    border-color: #006241;
+}
+
+QWidget#hostCanvas QPushButton#primary:pressed {
+    background-color: #00543A;
+    border-color: #00543A;
+}
+
+QWidget#hostCanvas QPushButton#primary:disabled {
+    background-color: #9BB8AD;
+    color: #FFFFFF;
+    border-color: #9BB8AD;
+}
+
+QWidget#hostCanvas QPushButton#danger {
+    background-color: #C82014;
+    color: #FFFFFF;
+    border: 1px solid #C82014;
+    border-radius: 22px;
+    font-size: 14px;
+    font-weight: 600;
+    padding: 8px 18px;
+    min-height: 40px;
+}
+
+QWidget#hostCanvas QPushButton#danger:hover {
+    background-color: #A81B12;
+    border-color: #A81B12;
+}
+
+QWidget#hostCanvas QPushButton#danger:pressed {
+    background-color: #8E170F;
+    border-color: #8E170F;
+}
+
+QWidget#hostCanvas QComboBox {
+    background-color: #FFFFFF;
+    color: rgba(0, 0, 0, 0.87);
+    border: 1px solid #E0DCD4;
+    border-radius: 20px;
+    padding: 6px 12px;
+    font-size: 13px;
+    min-height: 34px;
+}
+
+QWidget#hostCanvas QComboBox:hover, QWidget#hostCanvas QComboBox:focus {
+    border: 1px solid #00754A;
+}
+
+QWidget#hostCanvas QComboBox::drop-down {
+    border: none;
+    width: 28px;
+}
+
+QWidget#hostCanvas QComboBox QAbstractItemView {
+    background-color: #FFFFFF;
+    color: rgba(0, 0, 0, 0.87);
+    selection-background-color: #D4E9E2;
+    selection-color: #12382C;
+    border: 1px solid #E0DCD4;
+    border-radius: 8px;
+    outline: none;
+    padding: 4px;
+}
+
+QWidget#hostCanvas QProgressBar {
+    background-color: #E4E0D8;
+    border: none;
+    border-radius: 10px;
+    text-align: center;
+    color: rgba(0, 0, 0, 0.87);
+    font-weight: 700;
+    font-size: 12px;
+    min-height: 20px;
+    max-height: 20px;
+}
+
+QWidget#hostCanvas QProgressBar::chunk {
+    background-color: #00754A;
+    border-radius: 10px;
+}
+
+QWidget#hostCanvas QTableWidget {
+    background-color: #FFFFFF;
+    alternate-background-color: #FBF9F6;
+    border: 1px solid #E7E3DC;
+    border-radius: 10px;
+    gridline-color: transparent;
+    color: rgba(0, 0, 0, 0.87);
+    font-size: 13px;
+}
+
+QWidget#hostCanvas QTableWidget::item {
+    padding: 6px 10px;
+    border: none;
+}
+
+QWidget#hostCanvas QTableWidget::item:selected {
+    background-color: #D4E9E2;
+    color: #12382C;
+}
+
+QWidget#hostCanvas QHeaderView::section {
+    background-color: #F4F1EB;
+    color: rgba(0, 0, 0, 0.58);
+    padding: 8px 12px;
+    border: none;
+    border-bottom: 1px solid #E7E3DC;
+    font-size: 13px;
+    font-weight: 600;
+}
+
+QScrollArea#hostScroll QScrollBar:vertical {
+    background: transparent;
+    width: 10px;
+    margin: 4px;
+}
+
+QScrollArea#hostScroll QScrollBar::handle:vertical {
+    background: #C9C2B8;
+    min-height: 24px;
+    border-radius: 5px;
+}
+
+QScrollArea#hostScroll QScrollBar::add-line:vertical,
+QScrollArea#hostScroll QScrollBar::sub-line:vertical {
+    height: 0px;
+}
+"""
 
 LIGHT_THEME = _theme(
     canvas="#F2EDE6",
