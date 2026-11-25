@@ -9,7 +9,7 @@ from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QFrame,
     QLineEdit, QComboBox, QCheckBox, QFileDialog, QMessageBox, QSpacerItem, QSizePolicy
 )
-from PySide6.QtCore import Signal
+from PySide6.QtCore import Qt, Signal
 
 from app.settings_manager import SettingsManager
 from app.network_manager import NetworkManager
@@ -28,17 +28,21 @@ class SettingsView(QWidget):
         self.init_ui()
 
     def init_ui(self):
+        self.setObjectName("canvas")
+        self.setAttribute(Qt.WA_StyledBackground, True)
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(30, 25, 30, 25)
+        layout.setContentsMargins(32, 24, 32, 24)
         layout.setSpacing(16)
 
         # Header
         hdr = QHBoxLayout()
-        self.back_btn = QPushButton("← Back to Menu")
+        self.back_btn = QPushButton("Back")
+        self.back_btn.setObjectName("outline")
+        self.back_btn.setCursor(Qt.PointingHandCursor)
         self.back_btn.clicked.connect(self.request_back.emit)
         hdr.addWidget(self.back_btn)
 
-        title = QLabel("Application Settings")
+        title = QLabel("Settings")
         title.setObjectName("title")
         hdr.addWidget(title)
         hdr.addStretch(1)
@@ -54,7 +58,7 @@ class SettingsView(QWidget):
         theme_row = QHBoxLayout()
         theme_row.addWidget(QLabel("UI Color Theme:"))
         self.theme_combo = QComboBox()
-        self.theme_combo.addItems(["Dark Theme (Windows 11)", "Light Theme (Windows 11)"])
+        self.theme_combo.addItems(["Dark", "Light"])
         cur_theme = self.settings.get("theme", "dark")
         self.theme_combo.setCurrentIndex(0 if cur_theme == "dark" else 1)
         self.theme_combo.currentIndexChanged.connect(self.handle_theme_change)
@@ -100,8 +104,8 @@ class SettingsView(QWidget):
 
         # Firewall Management
         fw_box = QVBoxLayout()
-        fw_lbl = QLabel("Windows Defender Firewall:")
-        fw_lbl.setStyleSheet("font-weight: 600;")
+        fw_lbl = QLabel("Windows Defender Firewall")
+        fw_lbl.setObjectName("section")
         fw_box.addWidget(fw_lbl)
 
         fw_btn_row = QHBoxLayout()
@@ -113,6 +117,12 @@ class SettingsView(QWidget):
         self.del_fw_btn.setObjectName("danger")
         self.del_fw_btn.clicked.connect(self.handle_remove_firewall)
         fw_btn_row.addWidget(self.del_fw_btn)
+
+        self.restore_btn = QPushButton("Restore original network settings")
+        self.restore_btn.setObjectName("danger")
+        self.restore_btn.setCursor(Qt.PointingHandCursor)
+        self.restore_btn.clicked.connect(self._request_restore)
+        fw_btn_row.addWidget(self.restore_btn)
         fw_btn_row.addStretch(1)
         fw_box.addLayout(fw_btn_row)
         c_layout.addLayout(fw_box)
@@ -123,13 +133,20 @@ class SettingsView(QWidget):
         save_row = QHBoxLayout()
         self.save_btn = QPushButton("Save Settings")
         self.save_btn.setObjectName("primary")
-        self.save_btn.setMinimumHeight(35)
+        self.save_btn.setFixedHeight(44)
+        self.save_btn.setCursor(Qt.PointingHandCursor)
         self.save_btn.clicked.connect(self.save_settings)
         save_row.addWidget(self.save_btn)
         save_row.addStretch(1)
         layout.addLayout(save_row)
 
         layout.addStretch(1)
+
+    def _request_restore(self):
+        window = self.window()
+        handler = getattr(window, "handle_manual_network_restore", None)
+        if handler is not None:
+            handler()
 
     def browse_save_dir(self):
         folder = QFileDialog.getExistingDirectory(self, "Select Save Directory", self.save_dir_input.text())

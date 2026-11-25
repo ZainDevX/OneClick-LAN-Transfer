@@ -19,6 +19,7 @@ from app.adapter_detection import AdapterInfo
 from app.network_manager import NetworkManager
 from app.client import ClientService
 from app.transfer_engine import TransferProgress
+from ui.chrome import apply_role
 from ui.worker import ClientBridge, FunctionThread
 
 class ClientView(QWidget):
@@ -39,17 +40,21 @@ class ClientView(QWidget):
         self.init_ui()
 
     def init_ui(self):
+        self.setObjectName("canvas")
+        self.setAttribute(Qt.WA_StyledBackground, True)
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(25, 20, 25, 20)
+        layout.setContentsMargins(32, 24, 32, 24)
         layout.setSpacing(14)
 
         # Header
         hdr_layout = QHBoxLayout()
-        self.back_btn = QPushButton("← Back to Menu")
+        self.back_btn = QPushButton("Back")
+        self.back_btn.setObjectName("outline")
+        self.back_btn.setCursor(Qt.PointingHandCursor)
         self.back_btn.clicked.connect(self.handle_back)
         hdr_layout.addWidget(self.back_btn)
 
-        title = QLabel("CLIENT MODE — File Receiver")
+        title = QLabel("Client Mode")
         title.setObjectName("title")
         hdr_layout.addWidget(title)
         hdr_layout.addStretch(1)
@@ -66,7 +71,7 @@ class ClientView(QWidget):
         cfg_layout.setSpacing(10)
 
         lbl_step1 = QLabel("1. Configure Network Adapter")
-        lbl_step1.setStyleSheet("font-weight: 600; font-size: 14px; color: #6CCB5F;")
+        lbl_step1.setObjectName("section")
         cfg_layout.addWidget(lbl_step1)
 
         adapter_row = QHBoxLayout()
@@ -92,7 +97,7 @@ class ClientView(QWidget):
         conn_layout.setSpacing(10)
 
         lbl_step2 = QLabel("2. Connect to Host PC")
-        lbl_step2.setStyleSheet("font-weight: 600; font-size: 14px; color: #6CCB5F;")
+        lbl_step2.setObjectName("section")
         conn_layout.addWidget(lbl_step2)
 
         input_row = QHBoxLayout()
@@ -105,10 +110,10 @@ class ClientView(QWidget):
         self.pairing_code_input = QLineEdit()
         self.pairing_code_input.setPlaceholderText("e.g. 748-219")
         self.pairing_code_input.setFixedWidth(140)
-        self.pairing_code_input.setStyleSheet("font-family: monospace; font-size: 16px; font-weight: 700; letter-spacing: 2px;")
+        self.pairing_code_input.setObjectName("pairingInput")
         input_row.addWidget(self.pairing_code_input)
 
-        self.connect_btn = QPushButton("Connect & Authenticate")
+        self.connect_btn = QPushButton("Connect && Authenticate")
         self.connect_btn.setObjectName("primary")
         self.connect_btn.clicked.connect(self.connect_to_host)
         input_row.addWidget(self.connect_btn)
@@ -128,11 +133,11 @@ class ClientView(QWidget):
 
         files_hdr = QHBoxLayout()
         lbl_step3 = QLabel("3. Available Shared Files on Host")
-        lbl_step3.setStyleSheet("font-weight: 600; font-size: 14px; color: #6CCB5F;")
+        lbl_step3.setObjectName("section")
         files_hdr.addWidget(lbl_step3)
         files_hdr.addStretch(1)
 
-        self.fetch_files_btn = QPushButton("🔄 Refresh Files")
+        self.fetch_files_btn = QPushButton("Refresh Files")
         self.fetch_files_btn.clicked.connect(self.fetch_files)
         files_hdr.addWidget(self.fetch_files_btn)
         files_layout.addLayout(files_hdr)
@@ -156,7 +161,7 @@ class ClientView(QWidget):
         dest_row.addWidget(self.browse_dest_btn)
 
         self.disk_space_lbl = QLabel("Free Space: --")
-        self.disk_space_lbl.setStyleSheet("font-weight: 500;")
+        self.disk_space_lbl.setObjectName("muted")
         dest_row.addWidget(self.disk_space_lbl)
         files_layout.addLayout(dest_row)
         layout.addWidget(files_card)
@@ -167,18 +172,18 @@ class ClientView(QWidget):
         trans_layout = QVBoxLayout(transfer_card)
 
         ctrl_row = QHBoxLayout()
-        self.start_transfer_btn = QPushButton("▶️ Start Download")
+        self.start_transfer_btn = QPushButton("Start Download")
         self.start_transfer_btn.setObjectName("primary")
         self.start_transfer_btn.setEnabled(False)
         self.start_transfer_btn.clicked.connect(self.start_transfer)
         ctrl_row.addWidget(self.start_transfer_btn)
 
-        self.pause_resume_btn = QPushButton("⏸️ Pause")
+        self.pause_resume_btn = QPushButton("Pause")
         self.pause_resume_btn.setEnabled(False)
         self.pause_resume_btn.clicked.connect(self.toggle_pause)
         ctrl_row.addWidget(self.pause_resume_btn)
 
-        self.cancel_btn = QPushButton("⏹️ Cancel")
+        self.cancel_btn = QPushButton("Cancel")
         self.cancel_btn.setObjectName("danger")
         self.cancel_btn.setEnabled(False)
         self.cancel_btn.clicked.connect(self.cancel_transfer)
@@ -187,7 +192,7 @@ class ClientView(QWidget):
         ctrl_row.addStretch(1)
 
         self.speed_lbl = QLabel("0.0 MB/s")
-        self.speed_lbl.setStyleSheet("font-weight: 700; font-size: 15px; color: #6CCB5F;")
+        self.speed_lbl.setObjectName("speed")
         ctrl_row.addWidget(self.speed_lbl)
 
         self.eta_lbl = QLabel("ETA: --")
@@ -199,7 +204,7 @@ class ClientView(QWidget):
         trans_layout.addWidget(self.progress_bar)
 
         self.progress_detail_lbl = QLabel("Ready")
-        self.progress_detail_lbl.setStyleSheet("color: #888888;")
+        self.progress_detail_lbl.setObjectName("muted")
         trans_layout.addWidget(self.progress_detail_lbl)
 
         layout.addWidget(transfer_card)
@@ -446,10 +451,10 @@ class ClientView(QWidget):
 
         if self.client_service.is_paused:
             self.client_service.resume()
-            self.pause_resume_btn.setText("⏸️ Pause")
+            self.pause_resume_btn.setText("Pause")
         else:
             self.client_service.pause()
-            self.pause_resume_btn.setText("▶️ Resume")
+            self.pause_resume_btn.setText("Resume")
 
     def cancel_transfer(self):
         if self.client_service:
@@ -475,7 +480,8 @@ class ClientView(QWidget):
         self.progress_bar.setValue(100)
         self.speed_lbl.setText("0.0 MB/s")
         self.eta_lbl.setText("Completed")
-        self.progress_detail_lbl.setText("✅ All files transferred and SHA-256 verified successfully!")
+        self.progress_detail_lbl.setText("All files transferred and SHA-256 verified successfully.")
+        apply_role(self.progress_detail_lbl, "statusGood")
         self.start_transfer_btn.setEnabled(True)
         self.pause_resume_btn.setEnabled(False)
         self.cancel_btn.setEnabled(False)
@@ -487,19 +493,23 @@ class ClientView(QWidget):
         self.cancel_btn.setEnabled(False)
         QMessageBox.critical(self, "Transfer Error", err_msg)
 
-    def handle_back(self):
+    def can_leave(self) -> bool:
         if self.client_service and self.client_service.is_transferring:
             reply = QMessageBox.question(
                 self,
                 "Cancel Transfer?",
-                "File transfer is currently in progress. Do you want to cancel and return to menu?",
+                "File transfer is currently in progress. Do you want to cancel and leave Client Mode?",
                 QMessageBox.Yes | QMessageBox.No,
                 QMessageBox.No
             )
-            if reply == QMessageBox.Yes:
-                self.client_service.disconnect()
-                self.request_back.emit()
-        else:
-            if self.client_service:
-                self.client_service.disconnect()
+            if reply != QMessageBox.Yes:
+                return False
+            self.client_service.disconnect()
+            return True
+        if self.client_service:
+            self.client_service.disconnect()
+        return True
+
+    def handle_back(self):
+        if self.can_leave():
             self.request_back.emit()

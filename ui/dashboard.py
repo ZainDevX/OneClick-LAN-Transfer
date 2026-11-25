@@ -1,19 +1,39 @@
 """
-Dashboard Landing View for OneClick LAN Transfer.
-Provides selection between HOST MODE and CLIENT MODE, along with adapter status
-and one-click network restoration.
+Home screen for OneClick LAN Transfer.
+
+Host and Client are chosen from two cards. Adapter status and the signed-in
+Windows role stay visible above them. About and Help live in the sidebar and
+are not part of this page.
 """
 
 from PySide6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QFrame,
-    QGridLayout, QSpacerItem, QSizePolicy, QMessageBox
+    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QFrame, QSizePolicy
 )
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import Qt, QSize, Signal
 
 from app.permissions import is_admin
+from ui.icons import CircleIcon, IconWidget, make_icon
+
+
+def _rule() -> QFrame:
+    line = QFrame()
+    line.setObjectName("rule")
+    line.setFixedHeight(1)
+    line.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+    return line
+
+
+def _feature(text: str) -> QHBoxLayout:
+    row = QHBoxLayout()
+    row.setSpacing(12)
+    row.addWidget(IconWidget("check", 22, "#006241"))
+    label = QLabel(text)
+    label.setObjectName("feature")
+    row.addWidget(label, 1)
+    return row
+
 
 class DashboardView(QWidget):
-    # Signals to request mode change
     request_host_mode = Signal()
     request_client_mode = Signal()
     request_restore_network = Signal()
@@ -21,172 +41,191 @@ class DashboardView(QWidget):
 
     def __init__(self, parent=None):
         super().__init__(parent)
+        self.setObjectName("canvas")
+        self.setAttribute(Qt.WA_StyledBackground, True)
         self.init_ui()
 
     def init_ui(self):
         main_layout = QVBoxLayout(self)
-        main_layout.setContentsMargins(30, 25, 30, 25)
-        main_layout.setSpacing(20)
+        main_layout.setContentsMargins(36, 28, 32, 22)
+        main_layout.setSpacing(16)
 
-        # Header Title
-        title_box = QVBoxLayout()
-        title_lbl = QLabel("OneClick LAN Transfer")
-        title_lbl.setObjectName("title")
-        subtitle_lbl = QLabel("Direct high-speed Ethernet transfer between Windows PCs without passwords or cloud.")
-        subtitle_lbl.setObjectName("subtitle")
-        title_box.addWidget(title_lbl)
-        title_box.addWidget(subtitle_lbl)
-        main_layout.addLayout(title_box)
+        title = QLabel("OneClick LAN Transfer")
+        title.setObjectName("heroTitle")
+        subtitle = QLabel("Direct high-speed file transfer between Windows PCs without passwords or cloud.")
+        subtitle.setObjectName("heroSubtitle")
+        subtitle.setWordWrap(True)
+        main_layout.addWidget(title)
+        main_layout.addWidget(subtitle)
+        main_layout.addWidget(_rule())
 
-        # System Status Banner Card
         self.status_banner = QFrame()
-        self.status_banner.setObjectName("banner")
-        banner_layout = QHBoxLayout(self.status_banner)
-        banner_layout.setContentsMargins(15, 12, 15, 12)
+        self.status_banner.setObjectName("statusCard")
+        self.status_banner.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        banner = QHBoxLayout(self.status_banner)
+        banner.setContentsMargins(18, 14, 16, 14)
+        banner.setSpacing(14)
 
-        status_icon = QLabel("🔌")
-        status_icon.setStyleSheet("font-size: 20px;")
-        banner_layout.addWidget(status_icon)
+        banner.addWidget(IconWidget("ethernet", 28, "#006241"))
+        banner.addWidget(self._vline())
 
+        names = QVBoxLayout()
+        names.setSpacing(2)
         self.adapter_status_lbl = QLabel("Detecting Ethernet adapters...")
-        self.adapter_status_lbl.setStyleSheet("font-weight: 500;")
-        banner_layout.addWidget(self.adapter_status_lbl, 1)
+        self.adapter_status_lbl.setObjectName("statusTitle")
+        self.adapter_detail_lbl = QLabel("")
+        self.adapter_detail_lbl.setObjectName("statusDetail")
+        names.addWidget(self.adapter_status_lbl)
+        names.addWidget(self.adapter_detail_lbl)
+        banner.addLayout(names, 1)
 
-        self.admin_badge = QLabel("Admin Check")
-        self.admin_badge.setObjectName("pill_warning")
-        banner_layout.addWidget(self.admin_badge)
+        banner.addWidget(self._vline())
+        banner.addWidget(IconWidget("user", 26, "#006241"))
+        self.admin_badge = QLabel("Standard User (Elevation on Demand)")
+        self.admin_badge.setObjectName("userStatus")
+        banner.addWidget(self.admin_badge)
 
         self.refresh_adapters_btn = QPushButton("Refresh")
-        self.refresh_adapters_btn.setFixedWidth(80)
+        self.refresh_adapters_btn.setObjectName("outline")
+        self.refresh_adapters_btn.setIcon(make_icon("refresh", 16, "#006241"))
+        self.refresh_adapters_btn.setIconSize(QSize(16, 16))
+        self.refresh_adapters_btn.setCursor(Qt.PointingHandCursor)
+        self.refresh_adapters_btn.setFixedHeight(36)
         self.refresh_adapters_btn.clicked.connect(self.request_manual_refresh)
-        banner_layout.addWidget(self.refresh_adapters_btn)
-
+        banner.addWidget(self.refresh_adapters_btn)
         main_layout.addWidget(self.status_banner)
 
-        # Mode Selection Grid (Host vs Client)
-        cards_layout = QHBoxLayout()
-        cards_layout.setSpacing(20)
+        cards = QHBoxLayout()
+        cards.setSpacing(22)
+        cards.addWidget(self._mode_card(
+            "monitor",
+            "Host Mode",
+            "Share files or entire folders from this computer.",
+            [
+                "Automatically sets IP to 192.168.50.1",
+                "Generates secure 6-digit pairing code",
+                "Direct TLS-encrypted streaming",
+                "Saturation for Gigabit Ethernet",
+            ],
+            "Select HOST Mode",
+            "host",
+        ))
+        cards.addWidget(self._mode_card(
+            "laptop",
+            "Client Mode",
+            "Receive files on this computer from the Host.",
+            [
+                "Automatically sets IP to 192.168.50.2",
+                "Connects securely using the pairing code",
+                "Browse and select files to transfer",
+                "Resume partial downloads and verify SHA-256",
+            ],
+            "Select CLIENT Mode",
+            "client",
+        ))
+        main_layout.addLayout(cards, 1)
 
-        # HOST Card
-        self.host_card = QFrame()
-        self.host_card.setObjectName("card")
-        host_layout = QVBoxLayout(self.host_card)
-        host_layout.setContentsMargins(20, 20, 20, 20)
-        host_layout.setSpacing(14)
+        info = QFrame()
+        info.setObjectName("infoBanner")
+        info.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        info_row = QHBoxLayout(info)
+        info_row.setContentsMargins(16, 12, 16, 12)
+        info_row.setSpacing(10)
+        info_row.addWidget(IconWidget("infoFill", 22, "#006241"))
+        tip = QLabel("For the best performance, use a wired Ethernet connection.")
+        tip.setObjectName("infoText")
+        info_row.addWidget(tip, 1)
+        main_layout.addWidget(info)
 
-        host_icon = QLabel("🖥️")
-        host_icon.setStyleSheet("font-size: 36px;")
-        host_layout.addWidget(host_icon)
-
-        host_title = QLabel("HOST MODE")
-        host_title.setStyleSheet("font-size: 18px; font-weight: 600; color: #60CDFF;")
-        host_layout.addWidget(host_title)
-
-        host_desc = QLabel(
-            "Share files or entire folders from this computer.\n\n"
-            "• Automatically sets IP to 192.168.50.1\n"
-            "• Generates secure 6-digit pairing code\n"
-            "• Direct TLS-encrypted streaming\n"
-            "• Saturation for Gigabit Ethernet"
-        )
-        host_desc.setWordWrap(True)
-        host_layout.addWidget(host_desc)
-        host_layout.addStretch(1)
-
-        self.host_btn = QPushButton("Select HOST Mode")
-        self.host_btn.setObjectName("primary")
-        self.host_btn.setMinimumHeight(40)
-        self.host_btn.clicked.connect(self.request_host_mode.emit)
-        host_layout.addWidget(self.host_btn)
-
-        cards_layout.addWidget(self.host_card)
-
-        # CLIENT Card
-        self.client_card = QFrame()
-        self.client_card.setObjectName("card")
-        client_layout = QVBoxLayout(self.client_card)
-        client_layout.setContentsMargins(20, 20, 20, 20)
-        client_layout.setSpacing(14)
-
-        client_icon = QLabel("📥")
-        client_icon.setStyleSheet("font-size: 36px;")
-        client_layout.addWidget(client_icon)
-
-        client_title = QLabel("CLIENT MODE")
-        client_title.setStyleSheet("font-size: 18px; font-weight: 600; color: #6CCB5F;")
-        client_layout.addWidget(client_title)
-
-        client_desc = QLabel(
-            "Receive files on this computer from the Host.\n\n"
-            "• Automatically sets IP to 192.168.50.2\n"
-            "• Connects securely using the pairing code\n"
-            "• Browse and select files to transfer\n"
-            "• Resume partial downloads and verify SHA-256"
-        )
-        client_desc.setWordWrap(True)
-        client_layout.addWidget(client_desc)
-        client_layout.addStretch(1)
-
-        self.client_btn = QPushButton("Select CLIENT Mode")
-        self.client_btn.setObjectName("primary")
-        self.client_btn.setMinimumHeight(40)
-        self.client_btn.clicked.connect(self.request_client_mode.emit)
-        client_layout.addWidget(self.client_btn)
-
-        cards_layout.addWidget(self.client_card)
-        main_layout.addLayout(cards_layout)
-
-        # Bottom Utilities Bar
-        bottom_bar = QHBoxLayout()
-        self.restore_btn = QPushButton("🔄 Restore Original Network Settings")
-        self.restore_btn.setObjectName("danger")
+        # Kept so network restore can still be disabled while it runs.
+        # The control itself lives on the Settings page, not on this screen.
+        self.restore_btn = QPushButton("Restore original network settings")
+        self.restore_btn.hide()
         self.restore_btn.clicked.connect(self.request_restore_network.emit)
-        bottom_bar.addWidget(self.restore_btn)
 
-        bottom_bar.addStretch(1)
-
-        self.settings_btn = QPushButton("⚙️ Settings")
-        self.settings_btn.clicked.connect(self.request_settings.emit)
-        bottom_bar.addWidget(self.settings_btn)
-
-        main_layout.addLayout(bottom_bar)
         self.refresh_admin_badge()
+
+    def _vline(self) -> QFrame:
+        line = QFrame()
+        line.setFixedWidth(1)
+        line.setMinimumHeight(36)
+        line.setStyleSheet("background-color: #E6E1DA; border: none;")
+        return line
+
+    def _mode_card(self, icon: str, title: str, subtitle: str, features: list[str], button_text: str, mode: str) -> QFrame:
+        card = QFrame()
+        card.setObjectName("card")
+        card.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        layout = QVBoxLayout(card)
+        layout.setContentsMargins(22, 22, 22, 20)
+        layout.setSpacing(14)
+
+        header = QHBoxLayout()
+        header.setSpacing(14)
+        header.addWidget(CircleIcon(icon, 64))
+        text = QVBoxLayout()
+        text.setSpacing(2)
+        heading = QLabel(title)
+        heading.setObjectName("cardTitle")
+        detail = QLabel(subtitle)
+        detail.setObjectName("cardSubtitle")
+        detail.setWordWrap(True)
+        text.addWidget(heading)
+        text.addWidget(detail)
+        header.addLayout(text, 1)
+        layout.addLayout(header)
+        layout.addWidget(_rule())
+
+        for feature in features:
+            layout.addLayout(_feature(feature))
+
+        layout.addStretch(1)
+
+        button = QPushButton(button_text)
+        button.setObjectName("primary")
+        button.setCursor(Qt.PointingHandCursor)
+        button.setFixedHeight(52)
+        if mode == "host":
+            self.host_btn = button
+            button.clicked.connect(self.request_host_mode.emit)
+        else:
+            self.client_btn = button
+            button.clicked.connect(self.request_client_mode.emit)
+        layout.addWidget(button)
+        return card
 
     def request_manual_refresh(self):
         window = self.window()
         refresher = getattr(window, "refresh_adapters", None)
         if refresher is not None:
             self.adapter_status_lbl.setText("Refreshing Ethernet adapters...")
+            self.adapter_detail_lbl.setText("")
             refresher()
 
     def refresh_admin_badge(self):
-        admin = is_admin()
-        if admin:
+        if is_admin():
             self.admin_badge.setText("Administrator")
-            self.admin_badge.setObjectName("pill_success")
         else:
             self.admin_badge.setText("Standard User (Elevation on Demand)")
-            self.admin_badge.setObjectName("pill_warning")
-        self.admin_badge.setStyle(self.admin_badge.style())
 
     def apply_adapters(self, adapters, scanning: bool = False):
         """Show the shared cache. This does not start a scan."""
         if adapters is None:
             if scanning:
                 self.adapter_status_lbl.setText("Detecting Ethernet adapters...")
+                self.adapter_detail_lbl.setText("")
             return
         if not adapters:
-            self.adapter_status_lbl.setText(
-                "No physical Ethernet adapter detected. Please connect a USB LAN dongle or check hardware."
-            )
+            self.adapter_status_lbl.setText("No Ethernet adapter detected")
+            self.adapter_detail_lbl.setText("Connect a USB LAN adapter or check the cable.")
             return
         connected = [adapter for adapter in adapters if adapter.is_connected]
-        if connected:
-            self.adapter_status_lbl.setText(f"Active Adapter: {connected[0].display_name()}")
-        else:
-            self.adapter_status_lbl.setText(
-                f"Detected: {adapters[0].display_name()} (Plug Cat6 cable to both PCs)"
-            )
+        adapter = connected[0] if connected else adapters[0]
+        state = "Connected" if adapter.is_connected else "Cable Disconnected"
+        self.adapter_status_lbl.setText(f"Detected: {adapter.name}")
+        detail = adapter.interface_description or adapter.name
+        self.adapter_detail_lbl.setText(f"{detail} [{state}]")
 
     def show_adapter_error(self, message: str):
-        self.adapter_status_lbl.setText(f"Adapter check error: {message}")
+        self.adapter_status_lbl.setText("Adapter check error")
+        self.adapter_detail_lbl.setText(message)

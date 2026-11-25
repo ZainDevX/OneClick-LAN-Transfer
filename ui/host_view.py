@@ -18,6 +18,7 @@ from app.adapter_detection import AdapterInfo
 from app.network_manager import NetworkManager
 from app.host import HostService
 from app.transfer_engine import TransferProgress
+from ui.chrome import apply_role
 from ui.worker import FunctionThread, HostBridge
 
 class HostView(QWidget):
@@ -40,17 +41,21 @@ class HostView(QWidget):
         self.init_ui()
 
     def init_ui(self):
+        self.setObjectName("canvas")
+        self.setAttribute(Qt.WA_StyledBackground, True)
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(25, 20, 25, 20)
+        layout.setContentsMargins(32, 24, 32, 24)
         layout.setSpacing(14)
 
         # Header with Back button
         hdr_layout = QHBoxLayout()
-        self.back_btn = QPushButton("← Back to Menu")
+        self.back_btn = QPushButton("Back")
+        self.back_btn.setObjectName("outline")
+        self.back_btn.setCursor(Qt.PointingHandCursor)
         self.back_btn.clicked.connect(self.handle_back)
         hdr_layout.addWidget(self.back_btn)
 
-        title = QLabel("HOST MODE — File Sharing Server")
+        title = QLabel("Host Mode")
         title.setObjectName("title")
         hdr_layout.addWidget(title)
         hdr_layout.addStretch(1)
@@ -67,7 +72,7 @@ class HostView(QWidget):
         cfg_layout.setSpacing(10)
 
         lbl_step1 = QLabel("1. Select Ethernet Adapter & Start Service")
-        lbl_step1.setStyleSheet("font-weight: 600; font-size: 14px; color: #60CDFF;")
+        lbl_step1.setObjectName("section")
         cfg_layout.addWidget(lbl_step1)
 
         adapter_row = QHBoxLayout()
@@ -101,11 +106,11 @@ class HostView(QWidget):
         code_box.addWidget(self.pairing_code_lbl)
 
         btn_row = QHBoxLayout()
-        self.copy_code_btn = QPushButton("📋 Copy Code")
+        self.copy_code_btn = QPushButton("Copy Code")
         self.copy_code_btn.clicked.connect(self.copy_pairing_code)
         btn_row.addWidget(self.copy_code_btn)
 
-        self.refresh_code_btn = QPushButton("🔄 Refresh Code")
+        self.refresh_code_btn = QPushButton("Refresh Code")
         self.refresh_code_btn.clicked.connect(self.refresh_code)
         btn_row.addWidget(self.refresh_code_btn)
         btn_row.addStretch(1)
@@ -115,7 +120,7 @@ class HostView(QWidget):
         client_box = QVBoxLayout()
         client_box.addWidget(QLabel("Connected Client:"))
         self.client_info_lbl = QLabel("Waiting for client connection over Cat6 cable...")
-        self.client_info_lbl.setStyleSheet("font-size: 14px; font-weight: 500; color: #A0A0A0;")
+        self.client_info_lbl.setObjectName("muted")
         client_box.addWidget(self.client_info_lbl)
         client_box.addStretch(1)
         pair_layout.addLayout(client_box, 1)
@@ -129,15 +134,15 @@ class HostView(QWidget):
 
         files_hdr = QHBoxLayout()
         lbl_step3 = QLabel("2. Shared Files and Folders")
-        lbl_step3.setStyleSheet("font-weight: 600; font-size: 14px; color: #60CDFF;")
+        lbl_step3.setObjectName("section")
         files_hdr.addWidget(lbl_step3)
         files_hdr.addStretch(1)
 
-        self.add_files_btn = QPushButton("➕ Add Files...")
+        self.add_files_btn = QPushButton("Add Files...")
         self.add_files_btn.clicked.connect(self.add_files)
         files_hdr.addWidget(self.add_files_btn)
 
-        self.add_folder_btn = QPushButton("📁 Add Folder...")
+        self.add_folder_btn = QPushButton("Add Folder...")
         self.add_folder_btn.clicked.connect(self.add_folder)
         files_hdr.addWidget(self.add_folder_btn)
 
@@ -154,7 +159,7 @@ class HostView(QWidget):
         files_layout.addWidget(self.files_table)
 
         self.total_size_lbl = QLabel("Total: 0 files (0 MB)")
-        self.total_size_lbl.setStyleSheet("font-weight: 500;")
+        self.total_size_lbl.setObjectName("muted")
         files_layout.addWidget(self.total_size_lbl)
         layout.addWidget(files_card)
 
@@ -166,7 +171,7 @@ class HostView(QWidget):
         mon_hdr = QHBoxLayout()
         mon_hdr.addWidget(QLabel("Live Transfer Monitor:"))
         self.transfer_speed_lbl = QLabel("0.0 MB/s")
-        self.transfer_speed_lbl.setStyleSheet("font-weight: 700; color: #60CDFF;")
+        self.transfer_speed_lbl.setObjectName("speed")
         mon_hdr.addWidget(self.transfer_speed_lbl)
         mon_hdr.addStretch(1)
         self.eta_lbl = QLabel("ETA: --")
@@ -178,7 +183,7 @@ class HostView(QWidget):
         mon_layout.addWidget(self.progress_bar)
 
         self.progress_detail_lbl = QLabel("Idle - Ready to stream")
-        self.progress_detail_lbl.setStyleSheet("color: #888888;")
+        self.progress_detail_lbl.setObjectName("muted")
         mon_layout.addWidget(self.progress_detail_lbl)
         layout.addWidget(self.monitor_card)
         self.apply_adapters(None)
@@ -330,12 +335,12 @@ class HostView(QWidget):
         self.pairing_code_lbl.setText("--- ---")
 
     def _on_client_connected(self, addr: str):
-        self.client_info_lbl.setText(f"🟢 Client Connected: {addr}")
-        self.client_info_lbl.setStyleSheet("font-size: 14px; font-weight: 600; color: #6CCB5F;")
+        self.client_info_lbl.setText(f"Client Connected: {addr}")
+        apply_role(self.client_info_lbl, "statusGood")
 
     def _on_client_disconnected(self):
         self.client_info_lbl.setText("Client Disconnected. Waiting for reconnection...")
-        self.client_info_lbl.setStyleSheet("font-size: 14px; font-weight: 500; color: #A0A0A0;")
+        apply_role(self.client_info_lbl, "muted")
 
     def _on_progress_update(self, p: TransferProgress):
         self.progress_bar.setValue(int(p.percentage))
@@ -395,7 +400,7 @@ class HostView(QWidget):
                 self.files_table.setItem(row, 1, QTableWidgetItem(size_str))
                 self.files_table.setItem(row, 2, QTableWidgetItem("Ready"))
             else:
-                self.files_table.setItem(row, 0, QTableWidgetItem(f"📁 {p.name} (Folder)"))
+                self.files_table.setItem(row, 0, QTableWidgetItem(f"{p.name} (Folder)"))
                 self.files_table.setItem(row, 1, QTableWidgetItem("Folder"))
                 self.files_table.setItem(row, 2, QTableWidgetItem("Ready"))
 
@@ -407,17 +412,20 @@ class HostView(QWidget):
         if self.host_service:
             self.host_service.set_shared_paths(self.selected_paths)
 
-    def handle_back(self):
+    def can_leave(self) -> bool:
         if self.host_service and self.host_service.is_running:
             reply = QMessageBox.question(
                 self,
                 "Stop Host Service?",
-                "Host service is currently active. Do you want to stop it and return to the main menu?",
+                "Host service is currently active. Do you want to stop it and leave Host Mode?",
                 QMessageBox.Yes | QMessageBox.No,
                 QMessageBox.No
             )
-            if reply == QMessageBox.Yes:
-                self.stop_host()
-                self.request_back.emit()
-        else:
+            if reply != QMessageBox.Yes:
+                return False
+            self.stop_host()
+        return True
+
+    def handle_back(self):
+        if self.can_leave():
             self.request_back.emit()
