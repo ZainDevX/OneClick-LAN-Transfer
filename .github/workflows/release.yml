@@ -1,0 +1,54 @@
+name: Release
+
+on:
+  push:
+    branches: [main]
+
+concurrency:
+  group: release-main
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.14"
+          cache: pip
+
+      - name: Build portable zip
+        run: cmd /c build.bat
+
+      - name: Publish GitHub release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $version = (Select-String -Path app/__init__.py -Pattern '__version__ = "' | Select-Object -First 1).Line.Split('"')[1]
+          $sha = "${{ github.sha }}"
+          $short = $sha.Substring(0, 7)
+          $tag = "v$version-$short"
+          $title = "OneClickLAN $version"
+          $zip = "dist/OneClickLAN-win64.zip"
+          $notes = @"
+          OneClickLAN $version ($short)
+
+          Unpack the zip and run OneClickLAN\OneClickLAN.exe.
+          Keep the _internal folder next to the exe.
+          Python is not required.
+          "@
+          gh release view $tag --json tagName 1>$null 2>$null
+          if ($LASTEXITCODE -eq 0) {
+            gh release upload $tag $zip --clobber
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+            gh release edit $tag --title $title --notes $notes --latest --target $sha
+            exit $LASTEXITCODE
+          }
+          gh release create $tag $zip --title $title --notes $notes --latest --target $sha
+          exit $LASTEXITCODE

@@ -4,6 +4,8 @@
 
 The application completely eliminates Windows SMB username/password prompts and permission headaches through an independent, TLS-encrypted mutual challenge-response authentication engine. It also automates static IP assignment, Windows Firewall rules, and network restoration with zero manual networking knowledge required.
 
+**Download (end users):** [OneClickLAN-win64.zip](https://github.com/ZainDevX/OneClick-LAN-Transfer/releases/latest/download/OneClickLAN-win64.zip). Every commit to `main` publishes a fresh build. The release title includes the version from `app/__init__.py` (currently 1.0.0). Unpack the zip and run `OneClickLAN\OneClickLAN.exe`. Leave the `_internal` folder next to the exe. Python is not required.
+
 ---
 
 ## Table of Contents
@@ -212,4 +214,4 @@ dist\OneClickLAN\OneClickLAN.exe
 ```
 
 > **Note for End Users:**
-> The entire `dist\OneClickLAN` directory is fully portable and self-contained. End users **do not need Python, pip, PySide6, or any runtime dependencies installed**. Simply copy the folder or ZIP archive to any Windows 10 or Windows 11 machine and run `OneClickLAN.exe`.
+> Download [OneClickLAN-win64.zip](https://github.com/ZainDevX/OneClick-LAN-Transfer/releases/latest/download/OneClickLAN-win64.zip) from the GitHub Releases page. The folder inside is portable and self-contained. End users **do not need Python, pip, PySide6, or any runtime dependencies installed**. Unpack it on any Windows 10 or Windows 11 machine and run `OneClickLAN.exe`. The `_internal` folder must stay next to the exe.

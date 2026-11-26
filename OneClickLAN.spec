@@ -72,6 +72,52 @@ a = Analysis(
     noarchive=False,
 )
 
+# The widgets app never loads these. Import scan of a full build showed
+# Qt6Core/Qt6Gui/Qt6Widgets/qwindows do not link them. They were about 23 MB
+# of the 52 MB zip (opengl32sw.dll alone was 7.7 MB compressed).
+_DROP_FILES = {
+    'opengl32sw.dll',
+    'libcrypto-3-x64.dll',
+    'libssl-3-x64.dll',
+    'qdirect2d.dll',
+    'qminimal.dll',
+    'qoffscreen.dll',
+    'qpdf.dll',
+    'qsvg.dll',
+    'qsvgicon.dll',
+    'qtuiotouchplugin.dll',
+    'qnetworklistmanager.dll',
+    'qcertonlybackend.dll',
+    'qopensslbackend.dll',
+    'qschannelbackend.dll',
+    'qtvirtualkeyboardplugin.dll',
+}
+_DROP_PREFIXES = (
+    'qt6network', 'qtnetwork',
+    'qt6qml', 'qtqml',
+    'qt6quick', 'qtquick',
+    'qt6pdf', 'qtpdf',
+    'qt6svg', 'qtsvg',
+    'qt6opengl', 'qtopengl',
+    'qt6virtualkeyboard', 'qtvirtualkeyboard',
+)
+
+
+def _ship(entry):
+    blob = (entry[0] + '/' + entry[1]).replace('\\', '/').lower()
+    if '/translations/' in blob:
+        return False
+    base = Path(entry[0]).name.lower()
+    if base in _DROP_FILES:
+        return False
+    return not Path(base).stem.startswith(_DROP_PREFIXES)
+
+
+_before = len(a.binaries) + len(a.datas)
+a.binaries = [entry for entry in a.binaries if _ship(entry)]
+a.datas = [entry for entry in a.datas if _ship(entry)]
+print(f'OneClickLAN: left out {_before - len(a.binaries) - len(a.datas)} unused Qt files')
+
 pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher)
 
 exe = EXE(
