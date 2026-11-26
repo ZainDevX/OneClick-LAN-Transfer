@@ -1,10 +1,10 @@
 """
-Permissions and one-shot Windows UAC elevation.
+Permissions and Windows UAC elevation.
 
-The GUI stays a standard user. When a network action needs administrator
-rights, this module launches the same program once with --elevated-helper.
-That process runs the whole command list, records every exit code, and exits.
-The user sees one consent dialog per action, not one dialog per netsh call.
+The packaged exe asks for administrator once, when the user double-clicks it.
+Network changes and the restore-on-close then run in that same process, so
+Windows does not ask again. A development run (python main.py) stays a normal
+user and still uses one --elevated-helper prompt per network action.
 """
 
 import sys
@@ -20,8 +20,10 @@ from pathlib import Path
 logger = logging.getLogger("OneClickLAN.Permissions")
 
 HELPER_FLAG = "--elevated-helper"
+LAUNCHED_ELEVATED_FLAG = "--launched-elevated"
 SEE_MASK_NOCLOSEPROCESS = 0x00000040
 SW_HIDE = 0
+SW_SHOWNORMAL = 1
 ERROR_CANCELLED = 1223
 WAIT_TIMEOUT = 0x00000102
 INFINITE = 0xFFFFFFFF
@@ -80,6 +82,56 @@ def is_admin() -> bool:
     except Exception as exc:
         logger.warning(f"Failed to check admin status: {exc}")
         return False
+
+
+def admin_launch_action(frozen: bool, admin: bool, argv: list[str]) -> str:
+    """Decide what to do before the window opens.
+
+    continue: open the window.
+    relaunch: start one elevated copy of this exe and exit.
+    abort: elevation was already requested and this process is still not admin.
+
+    The helper process is never relaunched. Development runs are not frozen,
+    so they stay unelevated and keep the on-demand helper.
+    """
+    if HELPER_FLAG in argv or not frozen or admin:
+        return "continue"
+    if LAUNCHED_ELEVATED_FLAG in argv:
+        return "abort"
+    return "relaunch"
+
+
+def ensure_launched_as_admin(argv: list[str]) -> int | None:
+    """Make a packaged launch administrator before Qt starts.
+
+    Returns an exit code when this process must stop, or None to continue.
+    The exe manifest is what normally shows the consent dialog on double-click.
+    This relaunch covers a start that ignored that request.
+    """
+    action = admin_launch_action(getattr(sys, "frozen", False), is_admin(), argv)
+    if action == "continue":
+        return None
+    if action == "abort":
+        _tell_user(
+            "OneClick LAN Transfer needs administrator permission to set the "
+            "network address and firewall rules.\n\n"
+            "Approve the Windows prompt, then open the application again."
+        )
+        return 1
+    cancelled, error = relaunch_frozen_as_admin(argv)
+    if cancelled:
+        return 0
+    if error:
+        _tell_user(error)
+        return 1
+    return 0
+
+
+def relaunch_frozen_as_admin(argv: list[str]) -> tuple[bool, str]:
+    """Start this packaged exe with the runas verb. Does not wait for it."""
+    forwarded = [arg for arg in argv[1:] if arg != LAUNCHED_ELEVATED_FLAG]
+    parameters = subprocess.list2cmdline([LAUNCHED_ELEVATED_FLAG, *forwarded])
+    return _shell_execute_runas(sys.executable, parameters, SW_SHOWNORMAL, wait=False)
 
 
 def adapter_name_is_safe(name: str) -> bool:
@@ -302,29 +354,30 @@ def _launch_elevated_helper(commands: list[PrivilegedCommand]) -> BatchResult:
                 pass
 
 
-def _shell_execute_helper(job_path: Path, result_path: Path) -> BatchResult:
-    executable, parameters = _helper_target(job_path, result_path)
-    workdir = str(Path(executable).resolve().parent) if getattr(sys, "frozen", False) else str(Path(sys.argv[0]).resolve().parent)
+class ShellExecuteInfo(ctypes.Structure):
+    _fields_ = [
+        ("cbSize", wintypes.DWORD),
+        ("fMask", wintypes.ULONG),
+        ("hwnd", wintypes.HWND),
+        ("lpVerb", wintypes.LPCWSTR),
+        ("lpFile", wintypes.LPCWSTR),
+        ("lpParameters", wintypes.LPCWSTR),
+        ("lpDirectory", wintypes.LPCWSTR),
+        ("nShow", ctypes.c_int),
+        ("hInstApp", wintypes.HINSTANCE),
+        ("lpIDList", ctypes.c_void_p),
+        ("lpClass", wintypes.LPCWSTR),
+        ("hkeyClass", wintypes.HKEY),
+        ("dwHotKey", wintypes.DWORD),
+        ("hMonitor", wintypes.HANDLE),
+        ("hProcess", wintypes.HANDLE),
+    ]
 
-    class ShellExecuteInfo(ctypes.Structure):
-        _fields_ = [
-            ("cbSize", wintypes.DWORD),
-            ("fMask", wintypes.ULONG),
-            ("hwnd", wintypes.HWND),
-            ("lpVerb", wintypes.LPCWSTR),
-            ("lpFile", wintypes.LPCWSTR),
-            ("lpParameters", wintypes.LPCWSTR),
-            ("lpDirectory", wintypes.LPCWSTR),
-            ("nShow", ctypes.c_int),
-            ("hInstApp", wintypes.HINSTANCE),
-            ("lpIDList", ctypes.c_void_p),
-            ("lpClass", wintypes.LPCWSTR),
-            ("hkeyClass", wintypes.HKEY),
-            ("dwHotKey", wintypes.DWORD),
-            ("hMonitor", wintypes.HANDLE),
-            ("hProcess", wintypes.HANDLE),
-        ]
 
+def _shell_execute_runas(executable: str, parameters: str, show: int, wait: bool, workdir: str | None = None) -> tuple[bool, str]:
+    """Run `executable` elevated. Returns (cancelled, error_message)."""
+    if not workdir:
+        workdir = str(Path(executable).resolve().parent)
     shell32 = ctypes.WinDLL("shell32", use_last_error=True)
     kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
     shell_execute = shell32.ShellExecuteExW
@@ -333,27 +386,49 @@ def _shell_execute_helper(job_path: Path, result_path: Path) -> BatchResult:
 
     info = ShellExecuteInfo()
     info.cbSize = ctypes.sizeof(ShellExecuteInfo)
-    info.fMask = SEE_MASK_NOCLOSEPROCESS
+    info.fMask = SEE_MASK_NOCLOSEPROCESS if wait else 0
     info.lpVerb = "runas"
     info.lpFile = executable
     info.lpParameters = parameters
     info.lpDirectory = workdir
-    info.nShow = SW_HIDE
+    info.nShow = show
 
-    logger.info("Requesting one elevation for the network helper.")
     if not shell_execute(ctypes.byref(info)):
         error_code = ctypes.get_last_error()
         if error_code == ERROR_CANCELLED:
-            return BatchResult(cancelled=True)
-        return BatchResult(launch_error=f"Windows could not start the elevated helper (error {error_code}).")
+            return True, ""
+        return False, f"Windows could not start the elevated process (error {error_code})."
 
-    try:
-        wait_result = kernel32.WaitForSingleObject(info.hProcess, INFINITE)
-        if wait_result == WAIT_TIMEOUT:
-            return BatchResult(launch_error="The elevated helper timed out.")
-    finally:
-        if info.hProcess:
+    if wait and info.hProcess:
+        try:
+            wait_result = kernel32.WaitForSingleObject(info.hProcess, INFINITE)
+            if wait_result == WAIT_TIMEOUT:
+                return False, "The elevated helper timed out."
+        finally:
             kernel32.CloseHandle(info.hProcess)
+    return False, ""
+
+
+def _tell_user(text: str) -> None:
+    """Show a native message. Used before Qt exists."""
+    try:
+        ctypes.windll.user32.MessageBoxW(None, text, "OneClick LAN Transfer", 0x00000010)
+    except Exception:
+        logger.error(text)
+
+
+def _shell_execute_helper(job_path: Path, result_path: Path) -> BatchResult:
+    executable, parameters = _helper_target(job_path, result_path)
+    if getattr(sys, "frozen", False):
+        workdir = str(Path(executable).resolve().parent)
+    else:
+        workdir = str(Path(sys.argv[0]).resolve().parent)
+    logger.info("Requesting one elevation for the network helper.")
+    cancelled, error = _shell_execute_runas(executable, parameters, SW_HIDE, wait=True, workdir=workdir)
+    if cancelled:
+        return BatchResult(cancelled=True)
+    if error:
+        return BatchResult(launch_error=error)
     return BatchResult()
 
 

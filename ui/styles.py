@@ -75,18 +75,28 @@ QFrame#sideRule {
 QPushButton#winBtn, QPushButton#winClose {
     background: transparent;
     border: none;
-    border-radius: 0px;
+    border-radius: 6px;
     padding: 0px;
-    min-height: 0px;
-    min-width: 0px;
+    min-width: 46px;
+    max-width: 46px;
+    min-height: 36px;
+    max-height: 36px;
 }
 
 QPushButton#winBtn:hover {
-    background: rgba(255, 255, 255, 0.08);
+    background: rgba(255, 255, 255, 0.12);
+}
+
+QPushButton#winBtn:pressed {
+    background: rgba(255, 255, 255, 0.20);
 }
 
 QPushButton#winClose:hover {
-    background: #C82014;
+    background: #E81123;
+}
+
+QPushButton#winClose:pressed {
+    background: #C42B1C;
 }
 """
 
@@ -244,6 +254,26 @@ QPushButton#primary:disabled {{
     background-color: #9BB8AD;
     color: #FFFFFF;
     border-color: #9BB8AD;
+}}
+
+QPushButton#homeCta {{
+    background-color: #006241;
+    color: #FFFFFF;
+    border: none;
+    border-radius: 20px;
+    font-size: 15px;
+    font-weight: 700;
+    padding: 0 16px;
+    min-height: 40px;
+    max-height: 40px;
+}}
+
+QPushButton#homeCta:hover {{
+    background-color: #00754A;
+}}
+
+QPushButton#homeCta:pressed {{
+    background-color: #004E34;
 }}
 
 QPushButton#outline {{

@@ -37,7 +37,6 @@ class DashboardView(QWidget):
     request_host_mode = Signal()
     request_client_mode = Signal()
     request_restore_network = Signal()
-    request_settings = Signal()
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -50,23 +49,14 @@ class DashboardView(QWidget):
         main_layout.setContentsMargins(36, 28, 32, 22)
         main_layout.setSpacing(16)
 
-        title_row = QHBoxLayout()
-        title_row.setSpacing(12)
         title = QLabel("OneClick LAN Transfer")
         title.setObjectName("heroTitle")
-        title_row.addWidget(title, 1)
-        self.settings_btn = QPushButton("Settings")
-        self.settings_btn.setObjectName("outline")
-        self.settings_btn.setIcon(make_icon("gear", 16, "#006241"))
-        self.settings_btn.setIconSize(QSize(16, 16))
-        self.settings_btn.setCursor(Qt.PointingHandCursor)
-        self.settings_btn.setFixedHeight(36)
-        self.settings_btn.clicked.connect(self.request_settings.emit)
-        title_row.addWidget(self.settings_btn, 0, Qt.AlignVCenter)
-        main_layout.addLayout(title_row)
+        title.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
+        main_layout.addWidget(title)
         subtitle = QLabel("Direct high-speed file transfer between Windows PCs without passwords or cloud.")
         subtitle.setObjectName("heroSubtitle")
         subtitle.setWordWrap(True)
+        subtitle.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
         main_layout.addWidget(subtitle)
         main_layout.addWidget(_rule())
 
@@ -118,7 +108,7 @@ class DashboardView(QWidget):
                 "Direct TLS-encrypted streaming",
                 "Saturation for Gigabit Ethernet",
             ],
-            "Select HOST Mode",
+            "Sender",
             "host",
         ))
         cards.addWidget(self._mode_card(
@@ -131,10 +121,10 @@ class DashboardView(QWidget):
                 "Browse and select files to transfer",
                 "Resume partial downloads and verify SHA-256",
             ],
-            "Select CLIENT Mode",
+            "Receiver",
             "client",
         ))
-        main_layout.addLayout(cards, 1)
+        main_layout.addLayout(cards)
 
         info = QFrame()
         info.setObjectName("infoBanner")
@@ -166,10 +156,10 @@ class DashboardView(QWidget):
     def _mode_card(self, icon: str, title: str, subtitle: str, features: list[str], button_text: str, mode: str) -> QFrame:
         card = QFrame()
         card.setObjectName("card")
-        card.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        card.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Maximum)
         layout = QVBoxLayout(card)
-        layout.setContentsMargins(22, 22, 22, 20)
-        layout.setSpacing(14)
+        layout.setContentsMargins(22, 18, 22, 18)
+        layout.setSpacing(12)
 
         header = QHBoxLayout()
         header.setSpacing(14)
@@ -190,19 +180,23 @@ class DashboardView(QWidget):
         for feature in features:
             layout.addLayout(_feature(feature))
 
-        layout.addStretch(1)
+        layout.addSpacing(8)
 
         button = QPushButton(button_text)
-        button.setObjectName("primary")
+        button.setObjectName("homeCta")
+        icon_kind = "send" if mode == "host" else "receive"
+        button.setIcon(make_icon(icon_kind, 18, "#FFFFFF"))
+        button.setIconSize(QSize(18, 18))
         button.setCursor(Qt.PointingHandCursor)
-        button.setFixedHeight(52)
+        button.setFixedSize(176, 40)
+        button.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
         if mode == "host":
             self.host_btn = button
             button.clicked.connect(self.request_host_mode.emit)
         else:
             self.client_btn = button
             button.clicked.connect(self.request_client_mode.emit)
-        layout.addWidget(button)
+        layout.addWidget(button, 0, Qt.AlignHCenter)
         return card
 
     def request_manual_refresh(self):

@@ -4,7 +4,7 @@ Dark-green title bar and sidebar stay on screen while the content stack
 changes. About and Help are intentionally empty pages.
 """
 
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import QSize, Qt, Signal
 from PySide6.QtWidgets import (
     QFrame, QHBoxLayout, QLabel, QPushButton, QSizePolicy, QVBoxLayout, QWidget
 )
@@ -50,37 +50,25 @@ class TitleBar(QFrame):
         layout.addWidget(title)
         layout.addStretch(1)
 
+        controls = QHBoxLayout()
+        controls.setContentsMargins(0, 0, 8, 0)
+        controls.setSpacing(4)
         self.min_btn = self._window_button("min", window.showMinimized)
-        self.max_btn = self._window_button("max", self._toggle_max)
         self.close_btn = self._window_button("close", window.close, close=True)
-        layout.addWidget(self.min_btn)
-        layout.addWidget(self.max_btn)
-        layout.addWidget(self.close_btn)
+        controls.addWidget(self.min_btn, 0, Qt.AlignVCenter)
+        controls.addWidget(self.close_btn, 0, Qt.AlignVCenter)
+        layout.addLayout(controls)
 
     def _window_button(self, kind: str, handler, close: bool = False) -> QPushButton:
         button = QPushButton()
         button.setObjectName("winClose" if close else "winBtn")
-        button.setIcon(make_icon(kind, 16, "#FFFFFF"))
-        button.setIconSize(button.iconSize())
-        button.setFixedSize(46, 44)
-        button.setCursor(Qt.PointingHandCursor)
+        button.setIcon(make_icon(kind, 14, "#FFFFFF"))
+        button.setIconSize(QSize(14, 14))
+        button.setFixedSize(46, 36)
+        button.setCursor(Qt.ArrowCursor)
         button.setFocusPolicy(Qt.NoFocus)
         button.clicked.connect(handler)
-        from PySide6.QtCore import QSize
-        button.setIconSize(QSize(14, 14))
         return button
-
-    def sync_max_icon(self) -> None:
-        kind = "restore" if self.window().isMaximized() else "max"
-        self.max_btn.setIcon(make_icon(kind, 16, "#FFFFFF"))
-
-    def _toggle_max(self) -> None:
-        window = self.window()
-        if window.isMaximized():
-            window.showNormal()
-        else:
-            window.showMaximized()
-        self.sync_max_icon()
 
     def _on_button(self, pos) -> bool:
         widget = self.childAt(pos)
@@ -102,13 +90,7 @@ class TitleBar(QFrame):
         if self._drag_origin is not None and event.buttons() & Qt.LeftButton:
             window = self.window()
             delta = event.globalPosition().toPoint() - self._drag_origin
-            if window.isMaximized():
-                window.showNormal()
-                self.sync_max_icon()
-                self._window_origin = window.frameGeometry().topLeft()
-                self._drag_origin = event.globalPosition().toPoint()
-            else:
-                window.move(self._window_origin + delta)
+            window.move(self._window_origin + delta)
             event.accept()
             return
         super().mouseMoveEvent(event)
@@ -117,13 +99,6 @@ class TitleBar(QFrame):
         self._drag_origin = None
         self._window_origin = None
         super().mouseReleaseEvent(event)
-
-    def mouseDoubleClickEvent(self, event):
-        if event.button() == Qt.LeftButton and not self._on_button(event.position().toPoint()):
-            self._toggle_max()
-            event.accept()
-            return
-        super().mouseDoubleClickEvent(event)
 
 
 class Sidebar(QFrame):
@@ -161,15 +136,13 @@ class Sidebar(QFrame):
 
         for key, text, kind in (
             ("home", "Home", "home"),
-            ("host", "Host Mode", "stack"),
+            ("settings", "Settings", "gear"),
             ("about", "About", "info"),
             ("help", "Help", "help"),
         ):
             button = QPushButton(text)
             button.setObjectName("nav")
-            button.setIcon(make_icon(kind, 20, "#FFFFFF"))
-            button.setIconSize(button.iconSize())
-            from PySide6.QtCore import QSize
+            button.setIcon(make_icon(kind, 18, "#FFFFFF"))
             button.setIconSize(QSize(18, 18))
             button.setCursor(Qt.PointingHandCursor)
             button.setCheckable(True)

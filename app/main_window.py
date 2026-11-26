@@ -5,12 +5,10 @@ and safe network restoration on close.
 """
 
 import logging
-import sys
-from ctypes import wintypes
 from pathlib import Path
 
 from PySide6.QtCore import QEvent, Qt
-from PySide6.QtGui import QCursor, QFont, QIcon
+from PySide6.QtGui import QFont, QIcon
 from PySide6.QtWidgets import (
     QApplication, QHBoxLayout, QMainWindow, QMessageBox, QStackedWidget,
     QVBoxLayout, QWidget
@@ -29,15 +27,10 @@ from ui.worker import FunctionThread
 
 logger = logging.getLogger("OneClickLAN.MainWindow")
 
-WM_NCHITTEST = 0x0084
-HTLEFT = 10
-HTRIGHT = 11
-HTTOP = 12
-HTTOPLEFT = 13
-HTTOPRIGHT = 14
-HTBOTTOM = 15
-HTBOTTOMLEFT = 16
-HTBOTTOMRIGHT = 17
+# Logical pixels. Fits a 1920×1080 screen at 125% (working area 1536×816).
+# 1200×720 holds the home cards without a gap and the host page without a scrollbar.
+WINDOW_WIDTH = 1200
+WINDOW_HEIGHT = 720
 
 
 class MainWindow(QMainWindow):
@@ -52,8 +45,7 @@ class MainWindow(QMainWindow):
 
         self.setWindowFlags(Qt.Window | Qt.FramelessWindowHint)
         self.setWindowTitle("OneClick LAN Transfer")
-        self.resize(1280, 820)
-        self.setMinimumSize(1040, 680)
+        self.setFixedSize(WINDOW_WIDTH, WINDOW_HEIGHT)
 
         icon_path = Path(__file__).parent.parent / "assets" / "app.ico"
         if icon_path.exists():
@@ -109,7 +101,6 @@ class MainWindow(QMainWindow):
 
         self.dashboard_view.request_host_mode.connect(lambda: self.switch_page(1))
         self.dashboard_view.request_client_mode.connect(lambda: self.switch_page(2))
-        self.dashboard_view.request_settings.connect(lambda: self.switch_page(3))
         self.dashboard_view.request_restore_network.connect(self.handle_manual_network_restore)
 
         self.host_view.request_back.connect(lambda: self.switch_page(0))
@@ -119,7 +110,7 @@ class MainWindow(QMainWindow):
         self.sidebar.set_active("home")
 
     def _on_sidebar(self, key: str) -> None:
-        index = {"home": 0, "host": 1, "about": 4, "help": 5}.get(key)
+        index = {"home": 0, "settings": 3, "about": 4, "help": 5}.get(key)
         if index is None:
             return
         current = self.stack.currentIndex()
@@ -135,7 +126,7 @@ class MainWindow(QMainWindow):
         self.switch_page(index)
 
     def _sync_nav(self, index: int) -> None:
-        self.sidebar.set_active({0: "home", 1: "host", 4: "about", 5: "help"}.get(index))
+        self.sidebar.set_active({0: "home", 3: "settings", 4: "about", 5: "help"}.get(index))
 
     def start_adapter_detection(self):
         """Called after the window is shown. The scan itself is not on the GUI thread."""
@@ -215,49 +206,8 @@ class MainWindow(QMainWindow):
 
     def changeEvent(self, event):
         super().changeEvent(event)
-        if event.type() == QEvent.WindowStateChange and hasattr(self, "title_bar"):
-            self.title_bar.sync_max_icon()
-
-    def _resize_hit(self, pos) -> int:
-        border = 6
-        x, y = pos.x(), pos.y()
-        width, height = self.width(), self.height()
-        left = x <= border
-        right = x >= width - border
-        top = y <= border
-        bottom = y >= height - border
-        if top and left:
-            return HTTOPLEFT
-        if top and right:
-            return HTTOPRIGHT
-        if bottom and left:
-            return HTBOTTOMLEFT
-        if bottom and right:
-            return HTBOTTOMRIGHT
-        if left:
-            return HTLEFT
-        if right:
-            return HTRIGHT
-        if top:
-            return HTTOP
-        if bottom:
-            return HTBOTTOM
-        return 0
-
-    def nativeEvent(self, eventType, message):
-        if sys.platform == "win32" and eventType == b"windows_generic_MSG":
-            try:
-                msg = wintypes.MSG.from_address(int(message))
-                if msg.message == WM_NCHITTEST and not self.isMaximized():
-                    hit = self._resize_hit(self.mapFromGlobal(QCursor.pos()))
-                    if hit:
-                        return True, hit
-            except Exception:
-                logger.debug("Window resize hit-test failed", exc_info=True)
-        result = super().nativeEvent(eventType, message)
-        if isinstance(result, tuple):
-            return result
-        return False, 0
+        if event.type() == QEvent.WindowStateChange and self.isMaximized():
+            self.showNormal()
 
     def closeEvent(self, event):
         # Stop host service if active

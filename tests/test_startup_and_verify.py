@@ -7,10 +7,20 @@ from unittest.mock import patch
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
+from pathlib import Path
+
 from app.adapter_detection import conflict_in_snapshot, wait_for_ipv4
 from app.host import format_host_error
 from app.network_manager import NetworkApplyResult
-from app.permissions import command_is_allowed, run_command_capturing
+from app.permissions import (
+    HELPER_FLAG,
+    LAUNCHED_ELEVATED_FLAG,
+    PrivilegedCommand,
+    admin_launch_action,
+    command_is_allowed,
+    run_command_capturing,
+    run_privileged_commands,
+)
 from ui.adapter_directory import is_cache_fresh
 
 
@@ -101,6 +111,37 @@ class TestCache(unittest.TestCase):
         self.assertFalse(is_cache_fresh(now - 9, now, ttl=8))
 
 
+class TestAdminLaunch(unittest.TestCase):
+    def test_packaged_exe_relaunches_until_it_is_admin(self):
+        self.assertEqual(admin_launch_action(True, False, ["OneClickLAN.exe"]), "relaunch")
+        self.assertEqual(admin_launch_action(True, True, ["OneClickLAN.exe"]), "continue")
+        self.assertEqual(
+            admin_launch_action(True, False, ["OneClickLAN.exe", LAUNCHED_ELEVATED_FLAG]),
+            "abort",
+        )
+
+    def test_helper_and_development_runs_stay_put(self):
+        self.assertEqual(
+            admin_launch_action(True, False, ["OneClickLAN.exe", HELPER_FLAG, "job", "result"]),
+            "continue",
+        )
+        self.assertEqual(admin_launch_action(False, False, ["main.py"]), "continue")
+
+    def test_admin_process_does_not_open_another_prompt(self):
+        with patch("app.permissions.is_admin", return_value=True), \
+                patch("app.permissions.execute_commands", return_value=[]) as execute, \
+                patch("app.permissions._launch_elevated_helper") as launch:
+            run_privileged_commands([
+                PrivilegedCommand(command="netsh interface ipv4 show interfaces", required=True, label="show"),
+            ])
+        launch.assert_not_called()
+        execute.assert_called_once()
+
+    def test_packaged_spec_requests_administrator(self):
+        spec = Path(__file__).resolve().parents[1].joinpath("OneClickLAN.spec").read_text(encoding="utf-8")
+        self.assertIn("uac_admin=True", spec)
+
+
 class TestStartupDoesNotScan(unittest.TestCase):
     def test_window_constructs_without_adapter_scan(self):
         from PySide6.QtWidgets import QApplication
@@ -128,6 +169,41 @@ class TestStartupDoesNotScan(unittest.TestCase):
             window.switch_page(0)
             app.processEvents()
             self.assertEqual(scan.call_count, 1)
+            window.close()
+
+    def test_window_is_fixed_and_home_matches_the_shell(self):
+        from PySide6.QtWidgets import QApplication
+        from app.main_window import WINDOW_HEIGHT, WINDOW_WIDTH, MainWindow
+
+        app = QApplication.instance() or QApplication([])
+        window = MainWindow()
+        window.show()
+        app.processEvents()
+        try:
+            self.assertEqual(window.width(), WINDOW_WIDTH)
+            self.assertEqual(window.height(), WINDOW_HEIGHT)
+            self.assertEqual(window.minimumSize(), window.maximumSize())
+            self.assertFalse(hasattr(window.title_bar, "max_btn"))
+            self.assertEqual(window.title_bar.close_btn.objectName(), "winClose")
+            self.assertEqual(window.title_bar.min_btn.objectName(), "winBtn")
+            self.assertEqual(window.title_bar.close_btn.width(), 46)
+            self.assertEqual(window.title_bar.close_btn.height(), 36)
+            self.assertEqual(window.title_bar.min_btn.width(), 46)
+            self.assertEqual(window.title_bar.min_btn.height(), 36)
+            labels = [button.text() for button in window.sidebar._buttons.values()]
+            self.assertEqual(labels, ["Home", "Settings", "About", "Help"])
+            self.assertFalse(hasattr(window.dashboard_view, "settings_btn"))
+            self.assertEqual(window.dashboard_view.host_btn.text(), "Sender")
+            self.assertEqual(window.dashboard_view.client_btn.text(), "Receiver")
+            self.assertEqual(window.dashboard_view.host_btn.height(), 40)
+            self.assertFalse(window.dashboard_view.host_btn.icon().isNull())
+            self.assertFalse(window.dashboard_view.client_btn.icon().isNull())
+            window.sidebar.navigate.emit("settings")
+            app.processEvents()
+            self.assertEqual(window.stack.currentIndex(), 3)
+            self.assertTrue(window.sidebar._buttons["settings"].isChecked())
+            self.assertIn("#E81123", window.styleSheet())
+        finally:
             window.close()
 
 

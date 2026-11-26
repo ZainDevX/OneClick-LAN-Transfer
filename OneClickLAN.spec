@@ -91,6 +91,9 @@ exe = EXE(
     codesign_identity=None,
     entitlements_file=None,
     icon=str(project_root / 'assets' / 'app.ico'),
+    # Double-click shows one UAC prompt before the process starts. Network
+    # changes and restore-on-close then run in this process with no second prompt.
+    uac_admin=True,
 )
 
 coll = COLLECT(

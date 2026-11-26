@@ -115,10 +115,10 @@ class _EmptyFiles(QWidget):
         self.setObjectName("emptyState")
         self.setAttribute(Qt.WA_TransparentForMouseEvents, True)
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(12, 12, 12, 12)
-        layout.setSpacing(4)
+        layout.setContentsMargins(8, 4, 8, 4)
+        layout.setSpacing(2)
         layout.addStretch(1)
-        layout.addWidget(IconWidget("folder", 34, "#A39E96"), 0, Qt.AlignCenter)
+        layout.addWidget(IconWidget("folder", 26, "#A39E96"), 0, Qt.AlignCenter)
         title = QLabel("No files shared yet.")
         title.setObjectName("emptyTitle")
         title.setAlignment(Qt.AlignCenter)
@@ -135,8 +135,8 @@ def _card() -> tuple[QFrame, QVBoxLayout]:
     card.setObjectName("hostCard")
     card.setAttribute(Qt.WA_StyledBackground, True)
     layout = QVBoxLayout(card)
-    layout.setContentsMargins(16, 12, 16, 12)
-    layout.setSpacing(10)
+    layout.setContentsMargins(16, 8, 16, 8)
+    layout.setSpacing(8)
     return card, layout
 
 
@@ -208,8 +208,8 @@ class HostView(QWidget):
         scroll.setWidget(page)
 
         layout = QVBoxLayout(page)
-        layout.setContentsMargins(24, 16, 24, 14)
-        layout.setSpacing(10)
+        layout.setContentsMargins(20, 10, 20, 8)
+        layout.setSpacing(8)
 
         header = QHBoxLayout()
         header.setSpacing(14)
@@ -367,7 +367,7 @@ class HostView(QWidget):
         self.files_table.setFocusPolicy(Qt.NoFocus)
         self.files_table.setEditTriggers(QTableWidget.NoEditTriggers)
         self.files_table.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        self.files_table.setFixedHeight(148)
+        self.files_table.setFixedHeight(132)
         self._empty = _EmptyFiles(self.files_table.viewport())
         self.files_table.viewport().installEventFilter(self)
         layout.addWidget(self.files_table)

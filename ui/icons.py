@@ -75,6 +75,10 @@ def paint_icon(painter: QPainter, kind: str, rect: QRectF, color: QColor) -> Non
         _trash(painter, rect, color, stroke)
     elif kind == "copy":
         _copy(painter, rect, color, stroke)
+    elif kind == "send":
+        _send(painter, rect, color, stroke)
+    elif kind == "receive":
+        _receive(painter, rect, color, stroke)
     painter.restore()
 
 
@@ -410,6 +414,44 @@ def _trash(painter: QPainter, rect: QRectF, color: QColor, stroke: float) -> Non
     body.lineTo(left + rect.width() * 0.06, rect.bottom() - rect.height() * 0.12)
     body.closeSubpath()
     painter.drawPath(body)
+
+
+def _tray(painter: QPainter, rect: QRectF) -> None:
+    left = rect.left() + rect.width() * 0.20
+    right = rect.right() - rect.width() * 0.20
+    base = rect.bottom() - rect.height() * 0.14
+    lip = base - rect.height() * 0.16
+    painter.drawLine(QPointF(left, lip), QPointF(left, base))
+    painter.drawLine(QPointF(left, base), QPointF(right, base))
+    painter.drawLine(QPointF(right, base), QPointF(right, lip))
+
+
+def _send(painter: QPainter, rect: QRectF, color: QColor, stroke: float) -> None:
+    """Arrow leaving a tray. Used on the Sender button."""
+    painter.setPen(_pen(color, stroke * 1.15))
+    painter.setBrush(Qt.NoBrush)
+    cx = rect.center().x()
+    top = rect.top() + rect.height() * 0.12
+    shaft_bottom = rect.top() + rect.height() * 0.58
+    painter.drawLine(QPointF(cx, top), QPointF(cx, shaft_bottom))
+    head = rect.width() * 0.20
+    painter.drawLine(QPointF(cx, top), QPointF(cx - head, top + head))
+    painter.drawLine(QPointF(cx, top), QPointF(cx + head, top + head))
+    _tray(painter, rect)
+
+
+def _receive(painter: QPainter, rect: QRectF, color: QColor, stroke: float) -> None:
+    """Arrow entering a tray. Used on the Receiver button."""
+    painter.setPen(_pen(color, stroke * 1.15))
+    painter.setBrush(Qt.NoBrush)
+    cx = rect.center().x()
+    top = rect.top() + rect.height() * 0.12
+    tip = rect.top() + rect.height() * 0.58
+    painter.drawLine(QPointF(cx, top), QPointF(cx, tip))
+    head = rect.width() * 0.20
+    painter.drawLine(QPointF(cx, tip), QPointF(cx - head, tip - head))
+    painter.drawLine(QPointF(cx, tip), QPointF(cx + head, tip - head))
+    _tray(painter, rect)
 
 
 def _copy(painter: QPainter, rect: QRectF, color: QColor, stroke: float) -> None:

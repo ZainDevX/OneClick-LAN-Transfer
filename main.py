@@ -15,6 +15,13 @@ def main():
         from app.permissions import elevated_helper_main
         sys.exit(elevated_helper_main(sys.argv))
 
+    # Packaged double-click must already be administrator before any window.
+    # One consent dialog here replaces the prompts on network actions and on close.
+    from app.permissions import ensure_launched_as_admin
+    exit_code = ensure_launched_as_admin(sys.argv)
+    if exit_code is not None:
+        sys.exit(exit_code)
+
     import logging
     from pathlib import Path
 
@@ -33,8 +40,11 @@ def main():
             logging.StreamHandler(sys.stdout),
         ],
     )
+    from app.permissions import is_admin
+
     logging.info("==========================================")
     logging.info("Starting OneClick LAN Transfer Application")
+    logging.info("Process elevation: %s", "administrator" if is_admin() else "standard user")
     logging.info("==========================================")
 
     os.environ["QT_AUTO_SCREEN_SCALE_FACTOR"] = "1"
